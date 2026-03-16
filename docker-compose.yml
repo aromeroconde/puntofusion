@@ -27,7 +27,7 @@ services:
         - "traefik.http.routers.puntofusion-api.entrypoints=websecure"
         - "traefik.http.routers.puntofusion-api.tls=true"
     networks:
-      - general_network
+      - puntofusion_network
 
   punto-fusion-web:
     build: ./punto_fusion_web
@@ -46,8 +46,8 @@ services:
         - "traefik.http.routers.puntofusion-web.entrypoints=websecure"
         - "traefik.http.routers.puntofusion-web.tls=true"
     networks:
-      - general_network
+      - puntofusion_network
 
 networks:
-  general_network:
+  puntofusion_network:
     driver: bridge
