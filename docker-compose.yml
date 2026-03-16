@@ -1,9 +1,6 @@
 services:
   punto-fusion-api:
-    image: node:20-alpine
-    working_dir: /app
-    command: >
-      sh -c "apk add --no-cache git openssl && rm -rf /temp_code && git clone https://${GIT_TOKEN}@github.com/aromeroconde/puntofusion.git /temp_code && rm -rf /app/public /app/src /app/prisma && cp -a /temp_code/punto_fusion_api/* /app/ && rm -rf /temp_code && npm install && npx prisma generate && npm run build && node dist/index.js"
+    image: puntofusion-api:latest
     environment:
       - NODE_ENV=production
       - PORT=3100
@@ -13,7 +10,6 @@ services:
       - AGENDADOR_API_URL=${AGENDADOR_API_URL}
       - ALEGRA_USER=${ALEGRA_USER}
       - ALEGRA_TOKEN=${ALEGRA_TOKEN}
-      - GIT_TOKEN=${GIT_TOKEN}
     deploy:
       mode: replicated
       replicas: 1
@@ -31,10 +27,7 @@ services:
       - general_network
 
   punto-fusion-web:
-    image: node:20-alpine
-    working_dir: /app
-    command: >
-      sh -c "apk add --no-cache git nginx && rm -rf /temp_code && git clone https://${GIT_TOKEN}@github.com/aromeroconde/puntofusion.git /temp_code && rm -rf /app/* && cp -a /temp_code/punto_fusion_web/dist /app/public && rm -rf /temp_code && cp /etc/nginx/nginx.conf /app/nginx.conf && sed -i 's|worker_processes 1;|worker_processes auto;|g' /app/nginx.conf && nginx -g 'daemon off;'"
+    image: puntofusion-web:latest
     deploy:
       mode: replicated
       replicas: 1
