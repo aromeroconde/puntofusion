@@ -1,6 +1,6 @@
 services:
   punto-fusion-api:
-    build: ./punto_fusion_api
+    image: puntofusion-api:latest
     restart: always
     environment:
       - NODE_ENV=production
@@ -28,7 +28,7 @@ services:
       - general_network
 
   punto-fusion-web:
-    build: ./punto_fusion_web
+    image: puntofusion-web:latest
     restart: always
     deploy:
       mode: replicated
