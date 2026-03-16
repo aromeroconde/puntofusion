@@ -1,0 +1,42 @@
+services:
+  punto-fusion-api:
+    build: ./punto_fusion_api
+    restart: always
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DATABASE_URL=${DATABASE_URL}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - AGENDADOR_API_URL=${AGENDADOR_API_URL}
+      - AGENDADOR_API_KEY=${AGENDADOR_API_KEY}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.puntofusion-api.rule=Host(`puntofusion.smartnexo.com`)"
+      - "traefik.http.routers.puntofusion-api.rule=PathPrefix(`/api`)"
+      - "traefik.http.services.puntofusion-api.loadbalancer.server.port=3000"
+      - "traefik.http.routers.puntofusion-api.tls.certresolver=letsencryptresolver"
+      - "traefik.http.routers.puntofusion-api.entrypoints=websecure"
+      - "traefik.http.routers.puntofusion-api.tls=true"
+    networks:
+      - general_network
+
+  punto-fusion-web:
+    image: nginx:alpine
+    restart: always
+    volumes:
+      - ./punto_fusion_web/dist:/usr/share/nginx/html:ro
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.puntofusion-web.rule=Host(`puntofusion.smartnexo.com`)"
+      - "traefik.http.services.puntofusion-web.loadbalancer.server.port=80"
+      - "traefik.http.routers.puntofusion-web.tls.certresolver=letsencryptresolver"
+      - "traefik.http.routers.puntofusion-web.entrypoints=websecure"
+      - "traefik.http.routers.puntofusion-web.tls=true"
+    networks:
+      - general_network
+
+networks:
+  general_network:
+    external: true
+    name: general_network
