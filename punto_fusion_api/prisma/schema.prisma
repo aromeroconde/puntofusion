@@ -1,0 +1,354 @@
+// Esquema Prisma – Punto Fusión API
+// Mapea SOLAMENTE las tablas pf_* de Supabase.
+// Las tablas cal_* se consumen vía HTTP al Agendador API.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ──────────────────────────────────────────────
+
+enum pf_student_status {
+  activo
+  inactivo
+  egresado
+}
+
+enum pf_contact_preferred_channel {
+  mensaje
+  llamada
+  visita
+}
+
+enum pf_request_status {
+  nuevo
+  en_espera
+  agendado
+  cotizado
+  cerrado
+}
+
+enum pf_booking_status {
+  pendiente_pago
+  confirmado
+  cancelado
+  no_show
+}
+
+enum pf_payment_method {
+  sinpe
+  otro
+}
+
+enum pf_payment_status {
+  pendiente
+  verificado
+  rechazado
+  reembolsado
+}
+
+enum pf_attachment_kind {
+  comprobante
+  foto
+  video
+  documento
+  otro
+}
+
+// ─── Modelos ────────────────────────────────────────────
+
+model Contact {
+  id                String                        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  full_name         String?
+  whatsapp          String                        @unique
+  city              String?
+  country           String?
+  preferred_channel pf_contact_preferred_channel?
+  last_seen_at      DateTime?                     @db.Timestamptz
+  created_at        DateTime                      @default(now()) @db.Timestamptz
+  updated_at        DateTime                      @default(now()) @updatedAt @db.Timestamptz
+
+  students    Student[]
+  requests    Request[]
+  attachments Attachment[]
+  waitlist    Waitlist[]
+  bookings    Booking[]
+
+  @@map("pf_contacts")
+}
+
+model Student {
+  id                String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  contact_id        String            @unique @db.Uuid
+  status            pf_student_status @default(activo)
+  level             String?
+  group_schedule    String?           @db.VarChar(255) // Formato "eventTypeId|scheduleId"
+  reschedules_used  Int               @default(0)
+  requires_invoice  Boolean           @default(false)
+  alegra_contact_id String?           @db.VarChar(50)
+  alegra_item_reference String?       @db.VarChar(50)
+  start_date        DateTime?         @db.Date
+  notes             String?
+  created_at        DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime          @default(now()) @updatedAt @db.Timestamptz(6)
+
+  contact  Contact   @relation(fields: [contact_id], references: [id])
+  requests Request[]
+  payments Payment[]
+
+  @@map("pf_students")
+}
+
+model ClassMapping {
+  id                      String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  agendador_event_type_id String   @unique @db.VarChar(255)
+  alegra_item_id          String   @db.VarChar(255)
+  name                    String   @db.VarChar(255)
+  price                   Float
+  created_at              DateTime @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  @@map("pf_classes_mapping")
+}
+
+model Service {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  service        String
+  subservice     String?
+  name           String
+  description    String?
+  currency       String
+  price_amount   Decimal? @db.Decimal
+  duration_min   Int?
+  capacity       Int?
+  requires_level String?
+  is_bookable    Boolean  @default(true)
+  is_active      Boolean  @default(true)
+  created_at     DateTime @default(now()) @db.Timestamptz
+  updated_at     DateTime @default(now()) @updatedAt @db.Timestamptz
+
+  waitlist Waitlist[]
+  requests Request[]
+
+  @@map("pf_services")
+}
+
+model Request {
+  id               String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  contact_id       String            @db.Uuid
+  student_id       String?           @db.Uuid
+  service_id       String?           @db.Uuid
+  internal_tag     String?
+  objective        String?
+  level            String?
+  desired_datetime DateTime?         @db.Timestamptz
+  has_files        Boolean           @default(false)
+  status           pf_request_status @default(nuevo)
+  payload          Json              @default("{}")
+  created_at       DateTime          @default(now()) @db.Timestamptz
+  updated_at       DateTime          @default(now()) @updatedAt @db.Timestamptz
+  closed_at        DateTime?         @db.Timestamptz
+
+  contact     Contact      @relation(fields: [contact_id], references: [id])
+  student     Student?     @relation(fields: [student_id], references: [id])
+  service     Service?     @relation(fields: [service_id], references: [id])
+  attachments Attachment[]
+  bookings    Booking[]
+
+  @@map("pf_requests")
+}
+
+model Booking {
+  id               String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  request_id       String            @db.Uuid
+  contact_id       String            @db.Uuid
+  slot_id          String            @db.Uuid
+  start_at         DateTime?         @db.Timestamptz
+  end_at           DateTime?         @db.Timestamptz
+  status           pf_booking_status @default(pendiente_pago)
+  payment_required Boolean           @default(true)
+  created_at       DateTime          @default(now()) @db.Timestamptz
+  updated_at       DateTime          @default(now()) @updatedAt @db.Timestamptz
+
+  request  Request   @relation(fields: [request_id], references: [id])
+  contact  Contact   @relation(fields: [contact_id], references: [id])
+  payments Payment[]
+
+  @@map("pf_bookings")
+}
+
+model Payment {
+  id                  String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  booking_id          String            @db.Uuid
+  method              pf_payment_method @default(sinpe)
+  amount              Decimal?          @db.Decimal
+  currency            String
+  status              pf_payment_status @default(pendiente)
+  reference_text      String?
+  paid_at             DateTime?         @db.Timestamptz
+  verified_at         DateTime?         @db.Timestamptz
+  proof_attachment_id String?           @db.Uuid
+  created_at          DateTime          @default(now()) @db.Timestamptz
+  updated_at          DateTime          @default(now()) @updatedAt @db.Timestamptz
+
+  booking   Booking  @relation(fields: [booking_id], references: [id])
+  Student   Student? @relation(fields: [studentId], references: [id])
+  studentId String?  @db.Uuid
+
+  @@map("pf_payments")
+}
+
+model Waitlist {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  contact_id String   @db.Uuid
+  service_id String?  @db.Uuid
+  preference Json     @default("{}")
+  status     String   @default("waiting")
+  created_at DateTime @default(now()) @db.Timestamptz
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz
+
+  contact Contact  @relation(fields: [contact_id], references: [id])
+  service Service? @relation(fields: [service_id], references: [id])
+
+  @@map("pf_waitlist")
+}
+
+model Attachment {
+  id              String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  contact_id      String?            @db.Uuid
+  request_id      String?            @db.Uuid
+  booking_id      String?            @db.Uuid
+  kind            pf_attachment_kind @default(otro)
+  file_path       String
+  mime_type       String?
+  file_size_bytes BigInt?
+  metadata        Json               @default("{}")
+  created_at      DateTime           @default(now()) @db.Timestamptz
+
+  contact Contact? @relation(fields: [contact_id], references: [id])
+  request Request? @relation(fields: [request_id], references: [id])
+
+  @@map("pf_attachments")
+}
+
+model Calendar {
+  id                   String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  key                  String   @unique
+  name                 String
+  description          String?
+  timezone             String   @default("America/Costa_Rica")
+  default_duration_min Int?
+  default_capacity     Int?
+  is_active            Boolean  @default(true)
+  metadata             Json     @default("{}")
+  created_at           DateTime @default(now()) @db.Timestamptz
+  updated_at           DateTime @default(now()) @updatedAt @db.Timestamptz
+
+  rules CalendarRule[]
+  slots AvailabilitySlot[]
+
+  @@map("pf_calendars")
+}
+
+model CalendarRule {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  calendar_id       String    @db.Uuid
+  resource_id       String?   @db.Uuid
+  day_of_week       Int
+  start_time        DateTime  @db.Time
+  end_time          DateTime  @db.Time
+  slot_duration_min Int?
+  capacity          Int?
+  effective_from    DateTime? @db.Date
+  effective_to      DateTime? @db.Date
+  is_active         Boolean   @default(true)
+  metadata          Json      @default("{}")
+  created_at        DateTime  @default(now()) @db.Timestamptz
+  updated_at        DateTime  @default(now()) @updatedAt @db.Timestamptz
+
+  calendar Calendar @relation(fields: [calendar_id], references: [id])
+
+  @@map("pf_calendar_rules")
+}
+
+model AvailabilitySlot {
+  id                   String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  calendar_id          String?  @db.Uuid
+  resource_id          String?  @db.Uuid
+  service_id           String?  @db.Uuid
+  start_at             DateTime @db.Timestamptz
+  end_at               DateTime @db.Timestamptz
+  capacity             Int      @default(1)
+  booked_count         Int      @default(0)
+  is_open              Boolean  @default(true)
+  external_calendar_id String?
+  created_at           DateTime @default(now()) @db.Timestamptz
+  updated_at           DateTime @default(now()) @updatedAt @db.Timestamptz
+
+  calendar Calendar? @relation(fields: [calendar_id], references: [id])
+
+  @@map("pf_availability_slots")
+}
+
+model Resource {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  kind       String
+  key        String   @unique
+  name       String
+  is_active  Boolean  @default(true)
+  metadata   Json     @default("{}")
+  created_at DateTime @default(now()) @db.Timestamptz
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz
+
+  @@map("pf_resources")
+}
+
+model Policy {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  policy_key     String
+  scope_type     String    @default("global")
+  scope_ref      String?
+  version        Int       @default(1)
+  is_active      Boolean   @default(true)
+  policy         Json      @default("{}")
+  effective_from DateTime? @db.Timestamptz
+  effective_to   DateTime? @db.Timestamptz
+  created_at     DateTime  @default(now()) @db.Timestamptz
+  updated_at     DateTime  @default(now()) @updatedAt @db.Timestamptz
+
+  @@map("pf_policies")
+}
+
+model KbDocument {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  title      String
+  slug       String?
+  source     String?
+  content    String
+  tags       String[] @default([])
+  is_active  Boolean  @default(true)
+  created_at DateTime @default(now()) @db.Timestamptz
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz
+
+  chunks KbChunk[]
+
+  @@map("pf_kb_documents")
+}
+
+model KbChunk {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  document_id String   @db.Uuid
+  chunk_index Int
+  chunk_text  String
+  metadata    Json     @default("{}")
+  created_at  DateTime @default(now()) @db.Timestamptz
+
+  document KbDocument @relation(fields: [document_id], references: [id])
+
+  @@map("pf_kb_chunks")
+}

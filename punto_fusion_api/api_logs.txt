@@ -1,0 +1,17 @@
+(node:13090) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+--import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("ts-node/esm", pathToFileURL("./"));'
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:13090) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+[dotenv@17.3.1] injecting env (0) from .env -- tip: 🛠️  run anywhere with `dotenvx run -- yourcommand`
+🔥 Punto Fusión API corriendo en http://localhost:3100
+Error en POST /students: {
+  code: '23505',
+  details: 'Key (contact_id)=(513c9fcf-a491-4347-87f3-cf1b258d833f) already exists.',
+  hint: null,
+  message: 'duplicate key value violates unique constraint "pf_students_contact_unique"'
+}
+Error modifying Alegra estimate: {
+  code: '404',
+  message: 'La cotización no se encontró registrada en Alegra'
+}
