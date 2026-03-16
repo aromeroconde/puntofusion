@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   punto-fusion-api:
     build: ./punto_fusion_api
