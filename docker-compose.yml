@@ -33,5 +33,5 @@ services:
 
 networks:
   general_network:
-    external: true
-    name: general_network
+    driver: bridge
+    attachable: true
