@@ -1,26 +1,27 @@
 services:
   punto-fusion-api:
-    image: ghcr.io/aromeroconde/puntofusion-api:latest
+    build: ./punto_fusion_api
     restart: always
     environment:
       - NODE_ENV=production
-      - PORT=3000
+      - PORT=3100
       - DATABASE_URL=${DATABASE_URL}
       - SUPABASE_URL=${SUPABASE_URL}
       - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
       - AGENDADOR_API_URL=${AGENDADOR_API_URL}
-      - AGENDADOR_API_KEY=${AGENDADOR_API_KEY}
+      - ALEGRA_USER=${ALEGRA_USER}
+      - ALEGRA_TOKEN=${ALEGRA_TOKEN}
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.puntofusion-api.rule=Host(`puntofusion.smartnexo.com`) && PathPrefix(`/api`)"
-      - "traefik.http.services.puntofusion-api.loadbalancer.server.port=3000"
+      - "traefik.http.services.puntofusion-api.loadbalancer.server.port=3100"
       - "traefik.http.routers.puntofusion-api.tls.certresolver=letsencryptresolver"
       - "traefik.http.routers.puntofusion-api.entrypoints=websecure"
     networks:
       - general_network
 
   punto-fusion-web:
-    image: ghcr.io/aromeroconde/puntofusion-web:latest
+    build: ./punto_fusion_web
     restart: always
     labels:
       - "traefik.enable=true"
