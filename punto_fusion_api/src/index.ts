@@ -29,7 +29,7 @@ app.use('/api/classes', classesRouter);
 app.use('/api/billing', billingRouter);
 
 // ─── Health check ───────────────────────────────────────
-app.get('/health', (_req, res) => {
+app.get('/api/health', (_req, res) => {
     res.json({ status: 'ok', service: 'punto_fusion_api', time: new Date().toISOString() });
 });
 
