@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { CreditCard, Search, Loader2, CheckCircle2, AlertCircle, X, PlusCircle } from 'lucide-react';
 import ManualPaymentModal from '../components/ManualPaymentModal';
 

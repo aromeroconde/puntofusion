@@ -33,9 +33,13 @@ app.get('/api/health', (_req, res) => {
     res.json({ status: 'ok', service: 'punto_fusion_api', time: new Date().toISOString() });
 });
 
+app.get('/health', (_req, res) => {
+    res.json({ status: 'ok_from_root_health', service: 'punto_fusion_api', time: new Date().toISOString() });
+});
+
 // ─── Iniciar servidor ───────────────────────────────────
 const PORT = process.env['PORT'] || 3100;
 
-app.listen(PORT, () => {
-    console.log(`🔥 Punto Fusión API corriendo en http://localhost:${PORT}`);
+app.listen(Number(PORT), '0.0.0.0', () => {
+    console.log(`🔥 Punto Fusión API corriendo en http://0.0.0.0:${PORT}`);
 });

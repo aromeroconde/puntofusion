@@ -1,16 +1,11 @@
 services:
   punto-fusion-api:
     image: puntofusion-api:v1
+    env_file:
+      - /home/adminops/puntofusion/.env
     environment:
       - NODE_ENV=production
       - PORT=3100
-      - DATABASE_URL=${DATABASE_URL}
-      - SUPABASE_URL=${SUPABASE_URL}
-      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
-      - AGENDADOR_API_URL=${AGENDADOR_API_URL}
-      - AGENDADOR_API_KEY=${AGENDADOR_API_KEY}
-      - ALEGRA_USER=${ALEGRA_USER}
-      - ALEGRA_TOKEN=${ALEGRA_TOKEN}
     deploy:
       mode: replicated
       replicas: 1
@@ -19,11 +14,11 @@ services:
           - node.role == manager
       labels:
         - "traefik.enable=true"
-        - "traefik.http.routers.puntofusion-api.rule=Host(`puntofusion.smartnexo.com`) && PathPrefix(`/api`)"
-        - "traefik.http.services.puntofusion-api.loadbalancer.server.port=3100"
-        - "traefik.http.routers.puntofusion-api.tls.certresolver=letsencryptresolver"
-        - "traefik.http.routers.puntofusion-api.entrypoints=websecure"
-        - "traefik.http.routers.puntofusion-api.tls=true"
+        - "traefik.http.routers.pf-api.rule=Host(`puntofusion.smartnexo.com`) && PathPrefix(`/api`)"
+        - "traefik.http.routers.pf-api.entrypoints=websecure"
+        - "traefik.http.routers.pf-api.tls=true"
+        - "traefik.http.routers.pf-api.tls.certresolver=letsencryptresolver"
+        - "traefik.http.services.pf-api.loadbalancer.server.port=3100"
     networks:
       - general_network
 
