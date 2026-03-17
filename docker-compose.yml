@@ -1,6 +1,6 @@
 services:
   punto-fusion-api:
-    image: puntofusion-api:latest
+    image: puntofusion-api:v1
     environment:
       - NODE_ENV=production
       - PORT=3100
@@ -28,7 +28,7 @@ services:
       - general_network
 
   punto-fusion-web:
-    image: puntofusion-web:latest
+    image: puntofusion-web:v1
     deploy:
       mode: replicated
       replicas: 1
