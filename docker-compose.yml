@@ -40,6 +40,29 @@ services:
     networks:
       - general_network
 
+  punto-fusion-mcp:
+    image: puntofusion-mcp:latest
+    build: ./punto_fusion_mcp_server
+    environment:
+      - PF_API_URL=https://puntofusion.smartnexo.com/api
+      - MCP_PORT=3200
+      - TRANSPORT=http
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.pf-mcp.rule=Host(`mcp.puntofusion.smartnexo.com`)"
+        - "traefik.http.services.pf-mcp.loadbalancer.server.port=3200"
+        - "traefik.http.routers.pf-mcp.tls.certresolver=letsencryptresolver"
+        - "traefik.http.routers.pf-mcp.entrypoints=websecure"
+        - "traefik.http.routers.pf-mcp.tls=true"
+    networks:
+      - general_network
+
 networks:
   general_network:
     external: true
