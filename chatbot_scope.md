@@ -6,87 +6,156 @@ Punto Fusión es un sistema de gestión para una academia de baile que incluye:
 - **Base de datos**: Supabase (contactos, estudiantes, pagos, servicios)
 - **Reservas**: Agendador (sistema de clases)
 - **Facturación**: Alegra
+- **MCP Server**: Servidor MCP (Model Context Protocol) para integración con chatbots
 
 El chatbot se conectará a la API de Punto Fusión como "cerebro" para resolver consultas y acciones de clientes por WhatsApp.
 
 ---
 
-## Endpoints Disponibles
+## Servicios Desplegados
+
+### API (Punto Fusión)
+- **URL**: `https://puntofusion.smartnexo.com/api`
+- **Estado**: ✅ Funcionando
+- **Puerto**: 3100
+
+### Web (Punto Fusión)
+- **URL**: `https://puntofusion.smartnexo.com`
+- **Estado**: ✅ Funcionando
+- **Puerto**: 80
+
+### MCP Server (Chatbot)
+- **URL**: `https://mcp.puntofusion.smartnexo.com/mcp`
+- **Estado**: ✅ Funcionando
+- **Puerto**: 3200
+- **Transporte**: HTTP (Streamable HTTP Transport)
+
+---
+
+## MCP Server - Para el Chatbot
+
+El MCP server expone herramientas que el chatbot puede usar directamente. El chatbot (vía n8n) se conecta al MCP server y ejecuta las herramientas necesarias.
+
+### Conexión desde n8n
+```
+URL: https://mcp.puntofusion.smartnexo.com/mcp
+Método: POST
+Content-Type: application/json
+```
+
+### Herramientas MCP Disponibles
+
+| Herramienta | Descripción | Uso en Chatbot |
+|-------------|-------------|----------------|
+| `pf_health_check` | Verificar estado de la API | Diagnóstico |
+| `pf_verify_contact_by_whatsapp` | Verificar si un teléfono existe | Primer contacto |
+| `pf_check_student` | Verificar si es alumno activo | Autenticar usuario |
+| `pf_create_student` | Crear nuevo alumno | Inscripción |
+| `pf_get_student` | Obtener perfil del alumno | Consultar datos |
+| `pf_get_student_bookings` | Obtener próximas clases | "¿Cuándo es mi próxima clase?" |
+| `pf_check_reschedule_eligibility` | Verificar si puede reprogramar | "¿Puedo cambiar mi clase?" |
+| `pf_reschedule_class` | Ejecutar reprogramación | "Mueve mi clase al martes" |
+| `pf_sync_student_schedule` | Sincronizar horario fijo | Automatización mensual |
+| `pf_get_available_slots` | Ver cupos disponibles | "¿Qué horarios hay?" |
+| `pf_list_students` | Listar todos los alumnos | Consultas admin |
+| `pf_list_scheduled_students` | Listar alumnos con horario | Automatización |
+| `pf_list_payments` | Listar todos los pagos | Historial de pagos |
+| `pf_get_payment` | Obtener detalle de pago | Consultar pago específico |
+| `pf_list_services` | Listar servicios disponibles | "¿Qué clases ofrecen?" |
+| `pf_list_invoices` | Listar facturas | Consultas de facturación |
+| `pf_list_alegra_contacts` | Listar contactos de Alegra | Sistema de facturación |
+| `pf_create_invoice` | Crear factura en Alegra | Generar facturas |
+
+### Formato de Llamada MCP
+
+Para ejecutar una herramienta MCP, n8n envía:
+
+```json
+POST https://mcp.puntofusion.smartnexo.com/mcp
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/call",
+  "params": {
+    "name": "pf_verify_contact_by_whatsapp",
+    "arguments": {
+      "whatsapp": "+573001234567"
+    }
+  }
+}
+```
+
+Respuesta:
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"id\":\"...\",\"full_name\":\"...\",\"whatsapp\":\"...\"}"
+      }
+    ]
+  }
+}
+```
+
+---
+
+## Endpoints Disponibles (API Directa)
+
+Si el chatbot necesita llamar directamente a la API (sin MCP), estos son los endpoints:
 
 ### 1. Contactos
-**Gestión de contactos (prospectos, leads, clientes)**
-
 | Método | Endpoint | Descripción | Input | Output |
 |--------|----------|-------------|-------|--------|
 | POST | `/api/contacts/upsert` | Crear/actualizar contacto por WhatsApp | `{whatsapp, full_name?, city?, country?}` | Contacto creado/actualizado |
 | GET | `/api/contacts` | Listar contactos (últimos 100) | - | Array de contactos |
 | GET | `/api/contacts/:id` | Obtener contacto por ID | ID en URL | Datos del contacto |
 
----
-
-### 2. Estudiantes (Alumnos)
-**Gestión de estudiantes activos**
-
+### 2. Estudiantes
 | Método | Endpoint | Descripción | Input | Output |
 |--------|----------|-------------|-------|--------|
-| POST | `/api/students/check` | Verificar si alguien es alumno activo | `{whatsapp}` | `{is_student: boolean, contact: {...}, student: {...}}` |
-| POST | `/api/students` | Crear nuevo alumno (matricular) | `{full_name, whatsapp, email?, level?, group_schedule?, status?, start_date?, notes?, requires_invoice?}` | Alumno creado |
+| POST | `/api/students/check` | Verificar si es alumno activo | `{whatsapp}` | `{is_student: boolean, contact: {...}, student: {...}}` |
+| POST | `/api/students` | Crear nuevo alumno | `{full_name, whatsapp, email?, level?, ...}` | Alumno creado |
 | GET | `/api/students` | Listar todos los alumnos | - | Array de alumnos |
-| GET | `/api/students/:id` | Obtener datos de un alumno | ID en URL | Datos completos del alumno |
-| PATCH | `/api/students/:id` | Actualizar datos del alumno | `{level?, group_schedule?, status?, notes?, requires_invoice?}` | Alumno actualizado |
-
----
+| GET | `/api/students/:id` | Obtener datos de un alumno | ID en URL | Datos completos |
+| PATCH | `/api/students/:id` | Actualizar datos del alumno | `{level?, group_schedule?, ...}` | Alumno actualizado |
 
 ### 3. Horarios y Reservas
-**Sincronización con Agendador**
-
 | Método | Endpoint | Descripción | Input | Output |
 |--------|----------|-------------|-------|--------|
-| GET | `/api/students/:id/bookings` | Ver próximas clases del alumno | ID del estudiante | Array de reservas futuras |
-| GET | `/api/students/scheduled` | Listar alumnos con horario fijo | - | Array de alumnos programados |
-| POST | `/api/students/:id/sync-schedule` | Sincronizar reservas del mes | ID del estudiante | `{created, skipped, total_dates, errors}` |
-| GET | `/api/students/:id/entitlements?bookingId=` | Consultar elegibilidad para reprogramar | bookingId opcional | `{can_reschedule: boolean, reason, message}` |
-| POST | `/api/students/:id/reschedule` | Reprogramar una clase | `{bookingIdToCancel, newEventTypeId, newStartTime}` | `{booking, reschedules_used}` |
-| GET | `/api/students/available_slots?eventTypeId=&startDate=&endDate=` | Ver cupos disponibles | eventTypeId, fechas | Array de horarios disponibles |
-
----
+| GET | `/api/students/:id/bookings` | Próximas clases del alumno | ID del estudiante | Array de reservas |
+| GET | `/api/students/scheduled` | Alumnos con horario fijo | - | Array de alumnos |
+| POST | `/api/students/:id/sync-schedule` | Sincronizar reservas del mes | ID del estudiante | `{created, skipped, ...}` |
+| GET | `/api/students/:id/entitlements` | Elegibilidad para reprogramar | bookingId opcional | `{can_reschedule: boolean, ...}` |
+| POST | `/api/students/:id/reschedule` | Reprogramar una clase | `{bookingIdToCancel, ...}` | `{booking, reschedules_used}` |
+| GET | `/api/students/available_slots` | Cupos disponibles | eventTypeId, fechas | Array de horarios |
 
 ### 4. Pagos y Facturación
-**Gestión de pagos y faktur"""
-
 | Método | Endpoint | Descripción | Input | Output |
 |--------|----------|-------------|-------|--------|
 | GET | `/api/payments` | Listar pagos | - | Array de pagos |
-| GET | `/api/payments/:id` | Ver detalle de un pago | ID del pago | Datos del pago |
+| GET | `/api/payments/:id` | Ver detalle de pago | ID del pago | Datos del pago |
 | GET | `/api/billing` | Ver facturas | - | Array de facturas |
 
----
-
 ### 5. Servicios
-**Clases extras, paquetes, membresías**
-
 | Método | Endpoint | Descripción | Input | Output |
 |--------|----------|-------------|-------|--------|
 | GET | `/api/services` | Listar servicios disponibles | - | Array de servicios |
 
----
-
 ### 6. Alegra (Facturación)
-**Integración con sistema de facturación**
-
 | Método | Endpoint | Descripción | Input | Output |
 |--------|----------|-------------|-------|--------|
-| GET | `/api/alegra/contacts` | Listar contactos en Alegra | - | Contactos de Alegra |
-| POST | `/api/alegra/invoices` | Crear factura | `{contactId, items[], concept?}` | Factura creada |
-
----
+| GET | `/api/alegra/contacts` | Contactos en Alegra | - | Contactos de Alegra |
+| POST | `/api/alegra/invoices` | Crear factura | `{contactId, items[]}` | Factura creada |
 
 ### 7. Utilidades
-
 | Método | Endpoint | Descripción | Output |
 |--------|----------|-------------|--------|
-| GET | `/api/health` | Verificar que la API está funcionando | `{status: "ok"}` |
-| GET | `/health` | Health check alternativo | `{status: "ok"}` |
+| GET | `/api/health` | Verificar API | `{status: "ok"}` |
+| GET | `/mcp/health` | Verificar MCP | `{status: "ok"}` |
 
 ---
 
@@ -136,7 +205,7 @@ El chatbot se conectará a la API de Punto Fusión como "cerebro" para resolver 
 
 ### Alumnos Activos
 - Un contacto se considera "alumno" si tiene registro en `pf_students` con `status = 'activo'`
-- Para consultar, usar `POST /api/students/check` con el WhatsApp
+- Para consultar, usar `pf_check_student` con el WhatsApp
 
 ### Horarios Fijos
 - Los horarios se sincronizan con Agendador
@@ -147,38 +216,44 @@ El chatbot se conectará a la API de Punto Fusión como "cerebro" para resolver 
 
 ## Casos de Uso para el Chatbot
 
-### 1. Verificar si es Cliente
-**Flujo**: Usuario envía WhatsApp → Chatbot consulta `/api/students/check` → Retorna si es activo o no
+### 1. Verificar si es Cliente (Primer Contacto)
+**Flujo MCP**: Usuario envía WhatsApp → Chatbot ejecuta `pf_verify_contact_by_whatsapp` → Retorna si es activo o no
 
 ### 2. Consultar Próxima Clase
-**Flujo**: Alumno consulta → Chatbot llama `/api/students/:id/bookings` → Muestra fecha/hora de próxima clase
+**Flujo MCP**: Alumno consulta → Chatbot ejecuta `pf_get_student_bookings` → Muestra fecha/hora de próxima clase
 
 ### 3. Reprogramar Clase
-**Flujo**: Alumno pide cambiar → Chatbot verifica elegibilidad (`/api/students/:id/entitlements`) → Si eligible, procesa `/api/students/:id/reschedule`
+**Flujo MCP**: Alumno pide cambiar → Chatbot ejecuta `pf_check_reschedule_eligibility` → Si eligible, ejecuta `pf_reschedule_class`
 
 ### 4. Inscribirse como Alumno
-**Flujo**: Nuevo contacto → Chatbot llama `/api/students` con datos → Se crea registro
+**Flujo MCP**: Nuevo contacto → Chatbot ejecuta `pf_create_student` → Se crea registro
 
 ### 5. Consultar Facturas/Pagos
-**Flujo**: Alumno consulta → Chatbot llama `/api/payments` → Muestra historial de pagos
+**Flujo MCP**: Alumno consulta → Chatbot ejecuta `pf_list_payments` → Muestra historial de pagos
 
 ### 6. Ver Servicios Disponibles
-**Flujo**: Usuario pregunta por clases extra → Chatbot llama `/api/services` → Lista opciones
+**Flujo MCP**: Usuario pregunta por clases → Chatbot ejecuta `pf_list_services` → Lista opciones
 
 ### 7. Contacto Nuevo (Lead)
-**Flujo**: Usuario nuevo → Chatbot registra en `/api/contacts/upsert` → Guarda como lead
+**Flujo MCP**: Usuario nuevo → Chatbot ejecuta `pf_verify_contact_by_whatsapp` → Guarda como lead
 
 ---
 
 ## Configuración del Chatbot
 
-### URL Base
+### Opción 1: Usar MCP Server (Recomendado)
 ```
-https://puntofusion.smartnexo.com/api
+URL MCP: https://mcp.puntofusion.smartnexo.com/mcp
+Transporte: HTTP (Streamable HTTP)
+```
+
+### Opción 2: Usar API Directa
+```
+URL API: https://puntofusion.smartnexo.com/api
 ```
 
 ### Autenticación
-Las llamadas no requieren autenticación (API pública dentro de la red interna). Para producción, considerar agregar API key.
+Las llamadas no requieren autenticación. Para producción, considerar agregar API key.
 
 ### Formato de Respuestas
 Todas las respuestas son JSON. Manejar errores con codes HTTP estándar (200, 400, 404, 500).
@@ -188,33 +263,35 @@ Todas las respuestas son JSON. Manejar errores con codes HTTP estándar (200, 40
 ## Notas Técnicas
 
 - **Puerto de la API**: 3100
+- **Puerto del MCP**: 3200
 - **Timeout recomendado**: 30 segundos para operaciones que consultan Agendador
 - **Rate limiting**: No implementado actualmente
 - **Webhooks**: No disponibles por ahora
 
 ---
 
-## Ejemplo de Llamadas desde n8n
+## Ejemplo de Llamadas
 
-### Verificar Alumno
+### Via MCP Server
+```json
+POST https://mcp.puntofusion.smartnexo.com/mcp
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/call",
+  "params": {
+    "name": "pf_verify_contact_by_whatsapp",
+    "arguments": {
+      "whatsapp": "+573001234567"
+    }
+  }
+}
+```
+
+### Via API Directa
 ```json
 POST https://puntofusion.smartnexo.com/api/students/check
 Body: {"whatsapp": "+573001234567"}
-```
-
-### Obtener Próximas Clases
-```json
-GET https://puntofusion.smartnexo.com/api/students/UUID-ESTUDIANTE/bookings
-```
-
-### Reprogramar
-```json
-POST https://puntofusion.smartnexo.com/api/students/UUID-ESTUDIANTE/reschedule
-Body: {
-  "bookingIdToCancel": "UUID-RESERVA",
-  "newEventTypeId": "UUID-NUEVA-CLASE",
-  "newStartTime": "2026-04-15T14:00:00"
-}
 ```
 
 ---
@@ -222,3 +299,4 @@ Body: {
 ## Contacto
 - **Desarrollador**: Punto Fusión API
 - **Soporte técnico**: Consultar documentación de API interna
+- **Repositorio**: https://github.com/aromeroconde/puntofusion
