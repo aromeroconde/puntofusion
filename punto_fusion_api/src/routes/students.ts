@@ -1,12 +1,8 @@
 import { Router } from 'express';
-import axios from 'axios';
 import { supabase } from '../supabase.js';
+import { agendador } from '../agendador.js';
 
 const router = Router();
-
-// ─── Cliente HTTP hacia Agendador ────────────────────────
-const AGENDADOR_URL = process.env['AGENDADOR_API_URL'] || 'https://agendador.smartnexo.com/api';
-const agendador = axios.create({ baseURL: AGENDADOR_URL });
 
 // ─── Verificar si un usuario es alumno (por WhatsApp) ───
 // POST /api/students/check
