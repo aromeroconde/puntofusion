@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { supabase } from '../supabase.js';
 import { agendador } from '../agendador.js';
+import { eachDayOfInterval, parseISO, format } from 'date-fns';
 
 const router = Router();
 
@@ -227,21 +228,60 @@ router.get('/scheduled', async (_req, res) => {
     }
 });
 
-// ─── Listar cupos disponibles (Proxy) ────────────────────
+// ─── Listar cupos disponibles (Proxy Agregador) ────────────
 // GET /api/students/available_slots
 router.get('/available_slots', async (req, res) => {
     try {
-        const { eventTypeId, startDate, endDate } = req.query;
+        const { eventTypeId, startDate, endDate } = req.query as { eventTypeId?: string; startDate?: string; endDate?: string };
 
-        // Proxy hacia el Agendador
-        const { data: slots } = await agendador.get('/slots/available', {
-            params: { eventTypeId, startDate, endDate }
+        if (!eventTypeId || !startDate || !endDate) {
+            res.status(400).json({ error: 'Faltan parámetros obligatorios: eventTypeId, startDate, endDate.' });
+            return;
+        }
+
+        // 1. Obtener el resourceId asociado al eventType
+        const { data: eventType } = await agendador.get(`/event-types/${eventTypeId}`);
+        const resourceId = eventType.resourceId;
+
+        if (!resourceId) {
+            res.status(404).json({ error: 'No se encontró el recurso asociado al tipo de evento en el Agendador.' });
+            return;
+        }
+
+        // 2. Generar el listado de fechas en el rango (usando date-fns)
+        const days = eachDayOfInterval({
+            start: parseISO(startDate),
+            end: parseISO(endDate)
         });
 
-        res.json(slots);
+        // 3. Consultar disponibilidad día por día
+        const availabilityPromises = days.map(day => {
+            const dateStr = format(day, 'yyyy-MM-dd');
+            return agendador.get('/availability', {
+                params: { resourceId, eventTypeId, date: dateStr }
+            }).catch(err => {
+                console.error(`Error consultando disponibilidad para ${dateStr}:`, err.message);
+                return { data: { slots: [] } }; // Fallback silencioso por día
+            });
+        });
+
+        const responses = await Promise.all(availabilityPromises);
+
+        // 4. Consolidar resultados
+        const allSlots = responses.flatMap(r => r.data.slots || []);
+
+        // El MCP server espera un array de objetos con startTime, endTime y disponible=true (ya que el agendador solo devuelve libres)
+        const formattedSlots = allSlots.map((s: any) => ({
+            startTime: s.startTime,
+            endTime: s.endTime,
+            available: true
+        }));
+
+        res.json(formattedSlots);
+
     } catch (err: any) {
         console.error('Error en GET /students/available_slots:', err?.response?.data || err.message);
-        res.status(500).json({ error: 'Error al obtener cupos disponibles del Agendador.' });
+        res.status(500).json({ error: 'Error al procesar la disponibilidad en el Agendador.' });
     }
 });
 
