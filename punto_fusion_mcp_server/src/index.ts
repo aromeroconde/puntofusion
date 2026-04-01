@@ -475,28 +475,70 @@ async function runStdio() {
   console.error("🔥 Punto Fusión MCP Server running on stdio");
 }
 
-// ─── HTTP (for remote use) ─────────────────────────────────
+// ─── HTTP Streamable (for remote use: n8n, etc.) ───────────
 async function runHTTP() {
   const app = express();
   app.use(express.json());
 
+  // ── POST /mcp ─ Main JSON-RPC handler ──────────────────
+  // Handles: initialize, tools/list, tools/call, notifications
+  // Each POST gets its own server+transport (stateless mode)
   app.post("/mcp", async (req, res) => {
-    const server = createServer();
-    const transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: undefined,
-      enableJsonResponse: true
-    });
+    try {
+      const server = createServer();
+      const transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: undefined,
+        enableJsonResponse: true
+      });
 
-    res.on("close", () => {
-      transport.close();
-      server.close();
-    });
+      res.on("close", () => {
+        transport.close();
+        server.close();
+      });
 
-    await server.connect(transport);
-    await transport.handleRequest(req, res, req.body);
+      await server.connect(transport);
+      await transport.handleRequest(req, res, req.body);
+    } catch (error) {
+      console.error("Error handling POST /mcp:", error);
+      if (!res.headersSent) {
+        res.status(500).json({
+          jsonrpc: "2.0",
+          error: { code: -32603, message: "Internal server error" },
+          id: null
+        });
+      }
+    }
   });
 
-  // Health check endpoint
+  // ── GET /mcp ─ SSE stream (not supported in stateless) ─
+  // Stateless servers don't support GET for SSE streaming.
+  // Return 405 Method Not Allowed per MCP spec.
+  app.get("/mcp", (_req, res) => {
+    res.status(405).json({
+      jsonrpc: "2.0",
+      error: {
+        code: -32000,
+        message: "Method not allowed. This server operates in stateless mode and does not support GET for SSE streaming. Use POST to send JSON-RPC requests."
+      },
+      id: null
+    });
+  });
+
+  // ── DELETE /mcp ─ Session termination (no sessions) ────
+  // Stateless servers don't have sessions to terminate.
+  // Return 405 Method Not Allowed per MCP spec.
+  app.delete("/mcp", (_req, res) => {
+    res.status(405).json({
+      jsonrpc: "2.0",
+      error: {
+        code: -32000,
+        message: "Method not allowed. This server operates in stateless mode and does not support session termination."
+      },
+      id: null
+    });
+  });
+
+  // ── Health check endpoint ──────────────────────────────
   app.get("/health", (_req, res) => {
     res.json({ status: "ok", service: "punto-fusion-mcp-server" });
   });
@@ -504,6 +546,8 @@ async function runHTTP() {
   const port = parseInt(process.env["MCP_PORT"] || "3200");
   app.listen(port, "0.0.0.0", () => {
     console.error(`🔥 Punto Fusion MCP Server running on http://0.0.0.0:${port}/mcp`);
+    console.error(`   Transport: Streamable HTTP (stateless)`);
+    console.error(`   Health:    http://0.0.0.0:${port}/health`);
   });
 }
 
@@ -511,9 +555,9 @@ async function runHTTP() {
 // MAIN
 // ═══════════════════════════════════════════════════════════════
 
-const transport = process.env["TRANSPORT"] || "http";
+const transportMode = process.env["TRANSPORT"] || "http";
 
-if (transport === "stdio") {
+if (transportMode === "stdio") {
   runStdio().catch(error => {
     console.error("Server error:", error);
     process.exit(1);
