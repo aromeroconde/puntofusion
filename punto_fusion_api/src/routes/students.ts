@@ -227,6 +227,24 @@ router.get('/scheduled', async (_req, res) => {
     }
 });
 
+// ─── Listar cupos disponibles (Proxy) ────────────────────
+// GET /api/students/available_slots
+router.get('/available_slots', async (req, res) => {
+    try {
+        const { eventTypeId, startDate, endDate } = req.query;
+
+        // Proxy hacia el Agendador
+        const { data: slots } = await agendador.get('/slots/available', {
+            params: { eventTypeId, startDate, endDate }
+        });
+
+        res.json(slots);
+    } catch (err: any) {
+        console.error('Error en GET /students/available_slots:', err?.response?.data || err.message);
+        res.status(500).json({ error: 'Error al obtener cupos disponibles del Agendador.' });
+    }
+});
+
 // ─── Obtener alumno por ID ──────────────────────────────
 router.get('/:id', async (req, res) => {
     try {
@@ -677,23 +695,6 @@ router.get('/:id/bookings', async (req, res) => {
     }
 });
 
-// ─── Listar cupos disponibles (Proxy) ────────────────────
-// GET /api/students/available_slots
-router.get('/available_slots', async (req, res) => {
-    try {
-        const { eventTypeId, startDate, endDate } = req.query;
-
-        // Proxy hacia el Agendador
-        const { data: slots } = await agendador.get('/slots/available', {
-            params: { eventTypeId, startDate, endDate }
-        });
-
-        res.json(slots);
-    } catch (err: any) {
-        console.error('Error en GET /students/available_slots:', err?.response?.data || err.message);
-        res.status(500).json({ error: 'Error al obtener cupos disponibles del Agendador.' });
-    }
-});
 
 
 
