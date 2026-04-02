@@ -695,6 +695,44 @@ router.post('/:id/reschedule', async (req, res) => {
     }
 });
 
+// ─── Crear Reserva Manual (Puente Agendador) ─────────────
+// POST /api/students/manual-booking
+router.post('/manual-booking', async (req, res) => {
+    try {
+        const { eventTypeId, startTime, customerName, customerEmail, customerPhone, notes } = req.body;
+
+        if (!eventTypeId || !startTime || !customerName || !customerPhone) {
+            res.status(400).json({ error: 'Faltan parámetros obligatorios para la reserva (eventTypeId, startTime, customerName, customerPhone).' });
+            return;
+        }
+
+        // 1. Obtener el resourceId asociado al eventType
+        const { data: eventType } = await agendador.get(`/event-types/${eventTypeId}`);
+        const resourceId = eventType.resourceId;
+
+        if (!resourceId) {
+            res.status(404).json({ error: 'No se encontró el recurso asociado al tipo de evento en el Agendador.' });
+            return;
+        }
+
+        // 2. Crear la reserva en el Agendador
+        const { data: booking } = await agendador.post('/bookings', {
+            resourceId,
+            eventTypeId,
+            startTime,
+            customerName,
+            customerEmail: customerEmail || '',
+            customerPhone,
+            notes: notes || 'Reserva manual desde Punto Fusión API'
+        });
+
+        res.status(201).json(booking);
+    } catch (err: any) {
+        console.error('Error en POST /students/manual-booking:', err?.response?.data || err.message);
+        res.status(500).json({ error: 'Error al crear la reserva en el Agendador.' });
+    }
+});
+
 // ─── Listar próximas reservas del alumno ────────────────
 // GET /api/students/:id/bookings
 router.get('/:id/bookings', async (req, res) => {

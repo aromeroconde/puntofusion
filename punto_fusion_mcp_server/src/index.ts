@@ -460,6 +460,39 @@ function createServer() {
     }
   );
 
+  // ─── 19. Booking: Create manual booking ───────────────────
+  server.registerTool(
+    "pf_create_booking",
+    {
+      title: "Create Manual Booking",
+      description: "Create a new class reservation for a student. Use this once the user confirms the day and time from the available slots. IMPORTANT: Use internal UUIDs for event_type_id. NEVER ask the user for these codes.",
+      inputSchema: z.object({
+        event_type_id: z.string().uuid().describe("Internal event type UUID"),
+        start_time: z.string().describe("Start time in format YYYY-MM-DDTHH:mm:00"),
+        customer_name: z.string().describe("Full name of the student"),
+        customer_phone: z.string().describe("WhatsApp number of the student"),
+        customer_email: z.string().email().optional().describe("Email address (optional)"),
+        notes: z.string().optional().describe("Additional notes for the booking")
+      }),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }
+    },
+    async (params) => {
+      try {
+        const data = await apiRequest<any>("students/manual-booking", "POST", {
+          eventTypeId: params.event_type_id,
+          startTime: params.start_time,
+          customerName: params.customer_name,
+          customerPhone: params.customer_phone,
+          customerEmail: params.customer_email,
+          notes: params.notes
+        });
+        return { content: [{ type: "text", text: JSON.stringify(data) }] };
+      } catch (error) {
+        return { content: [{ type: "text", text: handleError(error) }] };
+      }
+    }
+  );
+
   return server;
 }
 
