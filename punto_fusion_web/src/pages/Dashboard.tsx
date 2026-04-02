@@ -1,59 +1,66 @@
 import { useEffect, useState } from 'react';
 import { format, startOfWeek, addDays, isSameDay } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { calendarApi } from '../lib/api';
+import { api } from '../lib/api';
 import { Users, Clock, Loader2 } from 'lucide-react';
 
-interface EventType {
-    id: number;
-    title: string;
-    duration: number;
+interface CalendarBooking {
+    id: string;
+    studentName: string;
+    status: string;
 }
 
-interface Booking {
-    id: number;
-    uid: string;
+interface CalendarClass {
+    eventTypeId: string;
     title: string;
-    description: string;
     startTime: string;
     endTime: string;
-    status: string;
-    eventTypeId: number;
-    eventType?: EventType;
+    duration: number;
+    maxCapacity: number;
+    bookedCount: number;
+    bookings: CalendarBooking[];
+}
+
+interface CalendarDay {
+    date: string;
+    classes: CalendarClass[];
 }
 
 export default function Dashboard() {
     const [currentDate, setCurrentDate] = useState(new Date());
-    const [bookings, setBookings] = useState<Booking[]>([]);
+    const [days, setDays] = useState<CalendarDay[]>([]);
     const [loading, setLoading] = useState(true);
 
     // Generar dias de la semana actual
     const startDate = startOfWeek(currentDate, { weekStartsOn: 1 });
+    const endDate = addDays(startDate, 6);
     const weekDays = Array.from({ length: 7 }).map((_, i) => addDays(startDate, i));
 
     useEffect(() => {
-        fetchBookings();
+        fetchCalendar();
     }, [currentDate]);
 
-    const fetchBookings = async () => {
+    const fetchCalendar = async () => {
         try {
             setLoading(true);
-            // Aqui llamaremos al agendador_cal. Necesitamos asegurarnos que el backend agendador 
-            // expone un endpoint para traer bookings en un rango de fechas. 
-            // Por ahora, simulamos o traemos todos para desarrollo.
-            const response = await calendarApi.get('/bookings');
-            if (response.data && response.data.bookings) {
-                setBookings(response.data.bookings);
+            const startStr = format(startDate, 'yyyy-MM-dd');
+            const endStr = format(endDate, 'yyyy-MM-dd');
+            const response = await api.get('/bookings/calendar', {
+                params: { startDate: startStr, endDate: endStr }
+            });
+            if (response.data?.days) {
+                setDays(response.data.days);
             }
         } catch (error) {
-            console.error('Error fetching bookings:', error);
+            console.error('Error fetching calendar:', error);
         } finally {
             setLoading(false);
         }
     };
 
-    const getBookingsForDay = (day: Date) => {
-        return bookings.filter(b => isSameDay(new Date(b.startTime), day));
+    const getClassesForDay = (day: Date) => {
+        const dateStr = format(day, 'yyyy-MM-dd');
+        return days.find(d => d.date === dateStr)?.classes || [];
     };
 
     return (
@@ -93,7 +100,7 @@ export default function Dashboard() {
             ) : (
                 <div className="grid grid-cols-7 gap-4 flex-1">
                     {weekDays.map((day, i) => {
-                        const dayBookings = getBookingsForDay(day);
+                        const dayClasses = getClassesForDay(day);
                         const isToday = isSameDay(day, new Date());
 
                         return (
@@ -108,29 +115,30 @@ export default function Dashboard() {
                                 </div>
 
                                 <div className="p-2 space-y-2 overflow-y-auto flex-1 bg-muted/20">
-                                    {dayBookings.length === 0 ? (
+                                    {dayClasses.length === 0 ? (
                                         <div className="text-xs text-center text-muted-foreground py-4">
                                             Sin clases
                                         </div>
                                     ) : (
-                                        dayBookings.map(booking => (
-                                            <div key={booking.id} className="bg-background rounded-lg p-3 shadow-sm border border-border hover:border-primary/50 cursor-pointer transition-colors group">
-                                                <div className="font-semibold text-sm line-clamp-1">{booking.title}</div>
+                                        dayClasses.map((cls, j) => (
+                                            <div key={j} className="bg-background rounded-lg p-3 shadow-sm border border-border hover:border-primary/50 cursor-pointer transition-colors group">
+                                                <div className="font-semibold text-sm line-clamp-1">{cls.title}</div>
 
                                                 <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
                                                     <Clock className="w-3.5 h-3.5" />
-                                                    <span>{format(new Date(booking.startTime), 'HH:mm')}</span>
+                                                    <span>{cls.startTime} - {cls.endTime}</span>
                                                 </div>
 
                                                 <div className="flex items-center justify-between mt-3">
                                                     <div className="flex items-center gap-1.5 text-xs font-medium text-primary bg-primary/10 px-2 py-1 rounded-full">
                                                         <Users className="w-3 h-3" />
-                                                        <span>15 Cupos</span>
+                                                        <span>{cls.bookedCount}/{cls.maxCapacity}</span>
                                                     </div>
-                                                    <span className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${booking.status === 'CONFIRMED' ? 'bg-green-500/10 text-green-600 dark:text-green-400' : 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400'
-                                                        }`}>
-                                                        {booking.status}
-                                                    </span>
+                                                    {cls.bookedCount > 0 && (
+                                                        <div className="text-[10px] text-muted-foreground">
+                                                            {cls.bookings.map(b => b.studentName).join(', ')}
+                                                        </div>
+                                                    )}
                                                 </div>
                                             </div>
                                         ))

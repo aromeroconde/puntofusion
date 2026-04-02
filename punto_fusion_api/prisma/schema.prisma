@@ -100,6 +100,7 @@ model Student {
   contact  Contact   @relation(fields: [contact_id], references: [id])
   requests Request[]
   payments Payment[]
+  bookings Booking[]
 
   @@map("pf_students")
 }
@@ -164,19 +165,23 @@ model Request {
 }
 
 model Booking {
-  id               String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  request_id       String            @db.Uuid
-  contact_id       String            @db.Uuid
-  slot_id          String            @db.Uuid
-  start_at         DateTime?         @db.Timestamptz
-  end_at           DateTime?         @db.Timestamptz
-  status           pf_booking_status @default(pendiente_pago)
-  payment_required Boolean           @default(true)
-  created_at       DateTime          @default(now()) @db.Timestamptz
-  updated_at       DateTime          @default(now()) @updatedAt @db.Timestamptz
+  id                    String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  request_id            String?           @db.Uuid
+  contact_id            String            @db.Uuid
+  slot_id               String?           @db.Uuid
+  agendador_booking_id  String?           @db.Uuid
+  event_type_id         String?           @db.Uuid
+  student_id            String?           @db.Uuid
+  start_at              DateTime?         @db.Timestamptz
+  end_at                DateTime?         @db.Timestamptz
+  status                pf_booking_status @default(pendiente_pago)
+  payment_required      Boolean           @default(true)
+  created_at            DateTime          @default(now()) @db.Timestamptz
+  updated_at            DateTime          @default(now()) @updatedAt @db.Timestamptz
 
-  request  Request   @relation(fields: [request_id], references: [id])
+  request  Request?  @relation(fields: [request_id], references: [id])
   contact  Contact   @relation(fields: [contact_id], references: [id])
+  student  Student?  @relation(fields: [student_id], references: [id])
   payments Payment[]
 
   @@map("pf_bookings")

@@ -11,6 +11,7 @@ import servicesRouter from './routes/services.js';
 import alegraRouter from './routes/alegra.js';
 import classesRouter from './routes/classes.js';
 import billingRouter from './routes/billing.js';
+import bookingsRouter from './routes/bookings.js';
 
 const app = express();
 
@@ -27,6 +28,7 @@ app.use('/api/services', servicesRouter);
 app.use('/api/alegra', alegraRouter);
 app.use('/api/classes', classesRouter);
 app.use('/api/billing', billingRouter);
+app.use('/api/bookings', bookingsRouter);
 
 // ─── Health check ───────────────────────────────────────
 app.get('/api/health', (_req, res) => {

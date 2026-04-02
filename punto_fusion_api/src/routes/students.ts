@@ -472,7 +472,7 @@ router.post('/:id/sync-schedule', async (req, res) => {
             }
 
             try {
-                await agendador.post('/bookings', {
+                const { data: agendadorBooking } = await agendador.post('/bookings', {
                     resourceId,
                     eventTypeId,
                     startTime: startTimeISO,
@@ -482,6 +482,20 @@ router.post('/:id/sync-schedule', async (req, res) => {
                     notes: `Reserva automática — Clase fija sincronizada desde Punto Fusión`,
                 });
                 created++;
+
+                // Vincular en pf_bookings
+                if (agendadorBooking?.id) {
+                    await supabase.from('pf_bookings').insert({
+                        contact_id: student.contact_id,
+                        student_id: studentId,
+                        event_type_id: eventTypeId,
+                        agendador_booking_id: agendadorBooking.id,
+                        start_at: agendadorBooking.startTime,
+                        end_at: agendadorBooking.endTime,
+                        status: 'confirmado',
+                        payment_required: true
+                    });
+                }
             } catch (bookErr: any) {
                 const msg = bookErr?.response?.data?.error || bookErr.message;
                 errors.push(`${startTimeISO}: ${msg}`);
@@ -674,8 +688,23 @@ router.post('/:id/reschedule', async (req, res) => {
             });
         } catch (cancelErr) {
             console.error('¡CUIDADO! Se creó la nueva reserva pero falló la cancelación de la antigua:', cancelErr);
-            // Idealmente aquí se podría implementar un rollback, pero por ahora lo registramos.
         }
+
+        // 4b. Actualizar pf_bookings: cancelar viejo, crear nuevo
+        await supabase.from('pf_bookings')
+            .update({ status: 'cancelado' })
+            .eq('agendador_booking_id', bookingIdToCancel);
+
+        await supabase.from('pf_bookings').insert({
+            contact_id: student.contact_id,
+            student_id: studentId,
+            event_type_id: newEventTypeId,
+            agendador_booking_id: newBooking.id,
+            start_at: newBooking.startTime,
+            end_at: newBooking.endTime,
+            status: 'confirmado',
+            payment_required: true
+        });
 
         // 5. Incrementar el contador `reschedules_used` en la base de datos
         await supabase
@@ -725,6 +754,27 @@ router.post('/manual-booking', async (req, res) => {
             customerPhone,
             notes: notes || 'Reserva manual desde Punto Fusión API'
         });
+
+        // 3. Vincular en pf_bookings si encontramos el contacto
+        if (booking?.id) {
+            const { data: contact } = await supabase
+                .from('pf_contacts')
+                .select('id')
+                .eq('whatsapp', customerPhone)
+                .maybeSingle();
+
+            if (contact) {
+                await supabase.from('pf_bookings').insert({
+                    contact_id: contact.id,
+                    event_type_id: eventTypeId,
+                    agendador_booking_id: booking.id,
+                    start_at: booking.startTime,
+                    end_at: booking.endTime,
+                    status: 'confirmado',
+                    payment_required: true
+                });
+            }
+        }
 
         res.status(201).json(booking);
     } catch (err: any) {

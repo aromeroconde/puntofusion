@@ -342,3 +342,13 @@ ALTER TABLE "pf_availability_slots" ADD CONSTRAINT "pf_availability_slots_calend
 -- AddForeignKey
 ALTER TABLE "pf_kb_chunks" ADD CONSTRAINT "pf_kb_chunks_document_id_fkey" FOREIGN KEY ("document_id") REFERENCES "pf_kb_documents"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
+-- ─── Migración: Vincular Agendador bookings ↔ pf_bookings ───
+ALTER TABLE "pf_bookings" ALTER COLUMN "request_id" DROP NOT NULL;
+ALTER TABLE "pf_bookings" ALTER COLUMN "slot_id" DROP NOT NULL;
+ALTER TABLE "pf_bookings" ADD COLUMN "agendador_booking_id" UUID;
+ALTER TABLE "pf_bookings" ADD COLUMN "event_type_id" UUID;
+ALTER TABLE "pf_bookings" ADD COLUMN "student_id" UUID;
+
+-- AddForeignKey (booking → student)
+ALTER TABLE "pf_bookings" ADD CONSTRAINT "pf_bookings_student_id_fkey" FOREIGN KEY ("student_id") REFERENCES "pf_students"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
