@@ -50,7 +50,7 @@ Content-Type: application/json
 | `pf_health_check` | Verificar estado de la API | Diagnóstico |
 | `pf_verify_contact_by_whatsapp` | Verificar si un teléfono existe | Primer contacto |
 | `pf_check_student` | Verificar si es alumno activo | Autenticar usuario |
-| `pf_create_student` | Crear nuevo alumno | Inscripción |
+| `pf_create_student` | Inscribir alumno nuevo al sistema (NO para reservas) | Alta de alumno nuevo |
 | `pf_get_student` | Obtener perfil del alumno | Consultar datos |
 | `pf_get_student_bookings` | Obtener próximas clases | "¿Cuándo es mi próxima clase?" |
 | `pf_check_reschedule_eligibility` | Verificar si puede reprogramar | "¿Puedo cambiar mi clase?" |
@@ -65,6 +65,7 @@ Content-Type: application/json
 | `pf_list_invoices` | Listar facturas | Consultas de facturación |
 | `pf_list_alegra_contacts` | Listar contactos de Alegra | Sistema de facturación |
 | `pf_create_invoice` | Crear factura en Alegra | Generar facturas |
+| `pf_create_booking` | **Crear reserva de clase/taller** (ÚNICA tool para reservar) | "Quiero reservar clase a las 2pm" |
 
 ### Formato de Llamada MCP
 
@@ -126,6 +127,7 @@ Si el chatbot necesita llamar directamente a la API (sin MCP), estos son los end
 ### 3. Horarios y Reservas
 | Método | Endpoint | Descripción | Input | Output |
 |--------|----------|-------------|-------|--------|
+| POST | `/api/students/manual-booking` | Crear reserva manual | `{eventTypeId, startTime, customerName, customerPhone, customerEmail?, notes?}` | Reserva creada |
 | GET | `/api/students/:id/bookings` | Próximas clases del alumno | ID del estudiante | Array de reservas |
 | GET | `/api/students/scheduled` | Alumnos con horario fijo | - | Array de alumnos |
 | POST | `/api/students/:id/sync-schedule` | Sincronizar reservas del mes | ID del estudiante | `{created, skipped, ...}` |
@@ -214,6 +216,20 @@ Si el chatbot necesita llamar directamente a la API (sin MCP), estos son los end
 
 ---
 
+## ⚠️ REGLA CRÍTICA: RESERVA vs INSCRIPCIÓN
+
+**NUNCA uses `pf_create_student` para crear una reserva de clase.**
+
+| Acción correcta | Tool correcta | Cuándo usarla |
+|-----------------|---------------|---------------|
+| Reservar una clase, taller o cupo | `pf_create_booking` | Cuando el usuario confirma un día y hora de un slot disponible |
+| Inscribir un alumno nuevo al sistema | `pf_create_student` | SOLO cuando un usuario nuevo quiere darse de alta como alumno regular con mensualidad |
+
+Si el usuario ya existe en el sistema y quiere agendar una clase → `pf_create_booking`.
+Si un usuario nuevo quiere inscribirse como alumno → `pf_create_student`.
+
+---
+
 ## Casos de Uso para el Chatbot
 
 ### 1. Verificar si es Cliente (Primer Contacto)
@@ -225,8 +241,32 @@ Si el chatbot necesita llamar directamente a la API (sin MCP), estos son los end
 ### 3. Reprogramar Clase
 **Flujo MCP**: Alumno pide cambiar → Chatbot ejecuta `pf_check_reschedule_eligibility` → Si eligible, ejecuta `pf_reschedule_class`
 
-### 4. Inscribirse como Alumno
-**Flujo MCP**: Nuevo contacto → Chatbot ejecuta `pf_create_student` → Se crea registro
+### 3b. Crear Reserva (FLUJO OBLIGATORIO)
+**Flujo MCP paso a paso**:
+1. Usuario pide reservar → Chatbot ejecuta `pf_list_services` para obtener el `id` del servicio
+2. Chatbot ejecuta `pf_get_available_slots` con ese `id` como `event_type_id`
+3. Chatbot muestra los horarios disponibles al usuario
+4. Usuario elige un día y hora (ej: "martes a las 4", "la primera opción", "sí")
+5. **Chatbot DEBE ejecutar `pf_create_booking`** con:
+   ```json
+   {
+     "event_type_id": "<el mismo UUID del servicio usado en paso 2>",
+     "start_time": "<el startTime exacto del slot elegido, formato ISO>",
+     "customer_name": "<nombre del usuario>",
+     "customer_phone": "<whatsapp del usuario>"
+   }
+   ```
+6. Chatbot confirma la reserva creada
+
+**⚠️ IMPORTANTE sobre persistencia de contexto**:
+- El `event_type_id` del servicio DEBE mantenerse entre los pasos 2→5 (no se pierde entre turnos de conversación)
+- El `start_time` del slot elegido DEBE ser exacto — el formato de cada slot retornado por `pf_get_available_slots` es `{startTime, endTime, available}`
+- NUNCA reconstruir la reserva desde un campo libre `notes`
+- NUNCA pedir UUIDs al usuario
+
+### 4. Inscribirse como Alumno (SOLO para alumnos nuevos)
+**Flujo MCP**: Nuevo contacto que quiere ser alumno regular → Chatbot ejecuta `pf_create_student` → Se crea registro de alumno
+**⚠️ NO usar `pf_create_student` para reservas de clase**
 
 ### 5. Consultar Facturas/Pagos
 **Flujo MCP**: Alumno consulta → Chatbot ejecuta `pf_list_payments` → Muestra historial de pagos

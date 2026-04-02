@@ -132,13 +132,13 @@ function createServer() {
   server.registerTool(
     "pf_create_student",
     {
-      title: "Create New Student",
-      description: "Enroll a new student. If contact doesn't exist, it will be created automatically.",
+      title: "Create New Student (Enrollment Only)",
+      description: "ENROLL a new student into the system (matriculation/inscription). This is NOT for creating class reservations or bookings. ONLY use this when a NEW user wants to sign up as a regular student with a monthly plan. For booking a class, workshop, or time slot, use pf_create_booking instead.",
       inputSchema: z.object({
         full_name: z.string().min(2).describe("Full name of the student"),
         whatsapp: z.string().min(5).describe("WhatsApp phone number"),
         email: z.string().email().optional().describe("Email address (optional)"),
-        level: z.string().optional().describe("Dance level (e.g. 'beginner', 'intermediate', 'advanced')"),
+        level: z.string().optional().describe("Jewelry level (e.g. 'beginner', 'intermediate', 'advanced')"),
         group_schedule: z.string().optional().describe("Schedule in format: eventTypeId|scheduleId"),
         notes: z.string().optional().describe("Additional notes"),
         requires_invoice: z.boolean().default(false).describe("Whether student needs invoices")
@@ -276,7 +276,7 @@ function createServer() {
     "pf_get_available_slots",
     {
       title: "Get Available Class Slots",
-      description: "Check available time slots for a class type within a date range. IMPORTANT: Use the 'id' obtained from pf_list_services for event_type_id. NEVER ask the user for this UUID.",
+      description: "Check available time slots for a class type within a date range. IMPORTANT: Use the 'id' obtained from pf_list_services for event_type_id. NEVER ask the user for this UUID. CRITICAL: After calling this tool, YOU MUST REMEMBER the event_type_id you used — you will need it as event_type_id when calling pf_create_booking after the user confirms a slot. Do NOT lose this ID between turns.",
       inputSchema: z.object({
         event_type_id: z.string().uuid().describe("Internal event type UUID (from pf_list_services)"),
         start_date: z.string().describe("Start date (YYYY-MM-DD)"),
@@ -381,7 +381,7 @@ function createServer() {
     "pf_list_services",
     {
       title: "List Available Services",
-      description: "Get all available services (classes, workshops, packages). Use this to show options to new students.",
+      description: "Get all available services (classes, workshops, packages). Each service has an 'id' field — this is the event_type_id. Use this id when calling pf_get_available_slots and pf_create_booking. REMEMBER the id of the service the user selects.",
       inputSchema: z.object({}),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true }
     },
@@ -464,15 +464,15 @@ function createServer() {
   server.registerTool(
     "pf_create_booking",
     {
-      title: "Create Manual Booking",
-      description: "Create a new class reservation for a student. Use this once the user confirms the day and time from the available slots. IMPORTANT: Use internal UUIDs for event_type_id. NEVER ask the user for these codes.",
+      title: "Create Class/Workshop Booking (RESERVATION)",
+      description: "MANDATORY tool to create a class or workshop reservation. Use this EXACTLY when the user confirms a day and time from available slots. This is the ONLY tool that creates bookings — do NOT use pf_create_student for reservations. Flow: (1) pf_get_available_slots to show options → (2) user picks a slot → (3) YOU MUST call this tool with the selected slot's eventTypeId and startTime. The eventTypeId must match the one used in pf_get_available_slots. The startTime must be the exact ISO datetime from the chosen slot. NEVER ask the user for UUIDs — you already have them from previous tool calls.",
       inputSchema: z.object({
-        event_type_id: z.string().uuid().describe("Internal event type UUID"),
-        start_time: z.string().describe("Start time in format YYYY-MM-DDTHH:mm:00"),
-        customer_name: z.string().describe("Full name of the student"),
-        customer_phone: z.string().describe("WhatsApp number of the student"),
-        customer_email: z.string().email().optional().describe("Email address (optional)"),
-        notes: z.string().optional().describe("Additional notes for the booking")
+        event_type_id: z.string().uuid().describe("REQUIRED. The UUID of the event type (class/workshop). Get this from pf_list_services or carry it from pf_get_available_slots. Example: 5713c09a-5683-4373-a3c2-68807a8d0c3d"),
+        start_time: z.string().describe("REQUIRED. Exact start datetime in ISO format YYYY-MM-DDTHH:mm:00. Must match a slot returned by pf_get_available_slots. Example: 2025-04-08T14:00:00"),
+        customer_name: z.string().describe("REQUIRED. Full name of the person attending the class"),
+        customer_phone: z.string().describe("REQUIRED. WhatsApp phone number of the person attending"),
+        customer_email: z.string().email().optional().describe("Optional email address"),
+        notes: z.string().optional().describe("Optional notes for the booking")
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }
     },
