@@ -226,11 +226,11 @@ function createServer() {
     "pf_reschedule_class",
     {
       title: "Reschedule a Class",
-      description: "Reschedule a student's class. First check eligibility with pf_check_reschedule_eligibility.",
+      description: "Reschedule a student's class. IMPORTANT: Use internal UUIDs for all ID parameters. NEVER ask the user for these codes.",
       inputSchema: z.object({
-        student_id: z.string().uuid().describe("Student UUID"),
-        booking_id_to_cancel: z.string().uuid().describe("Booking UUID to cancel"),
-        new_event_type_id: z.string().uuid().describe("New event type UUID"),
+        student_id: z.string().uuid().describe("Internal student UUID"),
+        booking_id_to_cancel: z.string().uuid().describe("Internal booking UUID to cancel"),
+        new_event_type_id: z.string().uuid().describe("Internal new event type UUID"),
         new_start_time: z.string().describe("New start time in format YYYY-MM-DDTHH:mm:00")
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }
@@ -276,9 +276,9 @@ function createServer() {
     "pf_get_available_slots",
     {
       title: "Get Available Class Slots",
-      description: "Check available time slots for a class type within a date range. Use this to find open classes for rescheduling.",
+      description: "Check available time slots for a class type within a date range. IMPORTANT: Use the 'id' obtained from pf_list_services for event_type_id. NEVER ask the user for this UUID.",
       inputSchema: z.object({
-        event_type_id: z.string().uuid().describe("Event type UUID"),
+        event_type_id: z.string().uuid().describe("Internal event type UUID (from pf_list_services)"),
         start_date: z.string().describe("Start date (YYYY-MM-DD)"),
         end_date: z.string().describe("End date (YYYY-MM-DD)")
       }),
