@@ -13,6 +13,8 @@ import classesRouter from './routes/classes.js';
 import billingRouter from './routes/billing.js';
 import bookingsRouter from './routes/bookings.js';
 
+import { startBot } from './bot.js';
+
 const app = express();
 
 app.use(cors());
@@ -44,4 +46,7 @@ const PORT = process.env['PORT'] || 3100;
 
 app.listen(Number(PORT), '0.0.0.0', () => {
     console.log(`🔥 Punto Fusión API corriendo en http://0.0.0.0:${PORT}`);
+    if (process.env['TELEGRAM_BOT_TOKEN']) {
+        startBot().catch(err => console.error('Error iniciando Telegram Bot:', err));
+    }
 });
