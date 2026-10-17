@@ -1,10 +1,10 @@
 # Plan del proyecto: Punto Fusión - Asistente Telegram & Shopify
 
 Creado: 2026-10-16
-Última actualización: 2026-10-16
-Última revisión: 2026-10-16
+Última actualización: 2026-10-17
+Última revisión: 2026-10-17
 Zona horaria: America/Bogota (UTC-5)
-Base de revisión: Repositorio punto_fusion, Telegram Bot Token recibido y guardado en .env; en proceso de obtención de credenciales Shopify Admin.
+Base de revisión: Validación anti-duplicados del mismo día con órdenes reales de Shopify (#3951 y #3952).
 Fuente canónica: PLAN_PROYECTO.md
 Estado del plan: Propuesto / en ejecución inicial
 
@@ -60,6 +60,7 @@ Hito activo: Operación y Soporte
 | T-06 | H3 | Soporte de notas de voz (Audio / Voice messages) | Descarga de audio de Telegram y transcripción automática con Whisper API | T-04 | P1 | hecha | Antigravity | 2026-10-16: [transcriber.ts](file:///Users/macair/Antigravity-projects/punto_fusion/punto_fusion_api/src/lib/transcriber.ts) activo y compilado |
 | T-07 | H3 | Búsqueda difusa y resolución interactiva (Productos y Clientes) | Búsqueda nativa a nivel de variantes (ej. empanadas/almojábanas bajo Café Catalina), soporte multi-ítem, tolerancia fonética Levenshtein e ítems personalizados | T-03, T-04 | P1 | hecha | Antigravity | 2026-10-16: searchProductsSmart con indexación de variantes y resolución directa en vivo |
 | T-05 | H4 | Pruebas de integración E2E | Verificación de orden creada en `tiendapuntofusion` | T-04, T-06, T-07 | P1 | hecha | Antigravity | 2026-10-16: Verificada creación de 6 ítems simultáneos (empanadas, almojábana, broca 0.9, plata 1000, lijas y piedra personalizada) en Borrador #D2908 |
+| T-08 | H3 | Verificación de pedidos duplicados (mismo día y producto exacto) | Consulta de pedidos y borradores del día para el cliente en Shopify; alerta si hay coincidencia exacta de producto antes de confirmar | T-03, T-04, T-07 | P1 | hecha | Antigravity | 2026-10-17: Probado con órdenes reales de hoy (#3951 y #3952); detecta coincidencia exacta de variante y permite confirmación adicional o cancelación |
 
 ## Bloqueos y riesgos relevantes
 
@@ -84,8 +85,9 @@ Hito activo: Operación y Soporte
 | 2026-10-16 | Búsqueda directa por variantes e ítems múltiples | En Shopify varios productos son "paraguas" (ej. Café La Catalina contiene empanadas y almojábanas) | La búsqueda indexa las 569 variantes directamente y resuelve pedidos multi-ítem en un solo paso | Usuario / Antigravity |
 | 2026-10-16 | Análisis de productos 100% delegado a IA (Cero código rígido) | El matching por código es inflexible y requiere mantenimiento ante nuevos productos o variantes | Se inyecta el catálogo vivo de Shopify en el prompt del LLM; la IA realiza el análisis semántico y adaptación instantánea a cualquier nuevo ítem del inventario | Usuario / Antigravity |
 | 2026-10-16 | Corrección de Plata 1000 vs Plata 950 y asignación de precio | La IA mapeaba numéricamente a Plata 950 y dejaba precio en 0 | Se instruye distinción explícita en el prompt y se toma el precio oficial del catálogo (₡14.000) por título exacto en vez de IDs numéricos volátiles | Usuario / Antigravity |
+| 2026-10-17 | Verificación anti-duplicados del mismo día por coincidencia exacta | Evitar doble registro de pedidos para un mismo cliente y producto | Se consultan órdenes/borradores de Shopify creados en el día calendario actual; si coincide producto, se alerta en el resumen | Usuario |
 
 ## Próximo paso
 
-El equipo comercial prueba el bot en @PuntoFusionShopBot enviando audios o textos libres con pedidos simples, combinados o ambiguos.
+Implementar función de verificación de pedidos del día en `shopify.ts` e integrarla en el generador de resumen de `orderAgent.ts`.
 

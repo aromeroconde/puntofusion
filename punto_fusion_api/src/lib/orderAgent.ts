@@ -7,6 +7,7 @@ import {
     searchShopifyCustomers,
     createShopifyOrder,
     createShopifyDraftOrder,
+    checkTodayDuplicates,
     MatchedVariant,
     MatchedCustomer
 } from './shopify.js';
@@ -220,7 +221,7 @@ async function resolveCustomer(name: string): Promise<SessionCustomer> {
 }
 
 // Generar resumen y confirmación
-function generateSummaryText(session: ChatSession): string {
+async function generateSummaryText(session: ChatSession): Promise<string> {
     let total = 0;
     let itemsTxt = '';
 
@@ -252,7 +253,31 @@ function generateSummaryText(session: ChatSession): string {
     msg += `\n📦 *Productos:*\n${itemsTxt}\n`;
     msg += `💰 *Total:* ₡${total.toLocaleString('es-CR')}\n`;
     msg += `📌 *Destino:* ${destino} de Shopify\n\n`;
-    msg += `¿Confirmas para registrarlo en Shopify? _(Responde "sí" para confirmar o "cancelar")_`;
+
+    // Verificación de pedidos duplicados del mismo día
+    let duplicateAlert = '';
+    try {
+        const duplicates = await checkTodayDuplicates(session.customer!, session.items);
+        if (duplicates.length > 0) {
+            duplicateAlert += `⚠️ *¡Atención! Posible pedido duplicado de hoy:*\n`;
+            for (const dup of duplicates) {
+                const tipo = dup.isDraft ? 'el borrador' : 'el pedido';
+                duplicateAlert += `Ya existe ${tipo} *${dup.orderNumber}* (${dup.createdAtTime}) para este cliente con:\n`;
+                for (const mItem of dup.matchingItems) {
+                    duplicateAlert += `  • *${mItem}*\n`;
+                }
+            }
+            duplicateAlert += `\n¿Confirmas que este es un *nuevo pedido adicional*, o deseas cancelarlo?\n_(Responde "sí" para registrarlo de todas formas o "cancelar")_`;
+        }
+    } catch (e: any) {
+        console.error('Error verificando duplicados:', e);
+    }
+
+    if (duplicateAlert) {
+        msg += duplicateAlert;
+    } else {
+        msg += `¿Confirmas para registrarlo en Shopify? _(Responde "sí" para confirmar o "cancelar")_`;
+    }
 
     return msg;
 }
@@ -478,7 +503,8 @@ export async function processConversationMessage(chatId: number, text: string, a
     // 9. Si tenemos cliente y productos, mostrar resumen de confirmación
     if (session.items.length > 0) {
         session.pendingConfirmation = true;
-        return warningPrefix + generateSummaryText(session);
+        const summary = await generateSummaryText(session);
+        return warningPrefix + summary;
     }
 
     return warningPrefix + `Entendido cliente: *${session.customer.name}*. ¿Qué productos deseas agregar a este pedido?`;

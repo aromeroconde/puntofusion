@@ -423,3 +423,118 @@ export async function getShopifyVariant(variantId: number): Promise<{
         return null;
     }
 }
+
+export interface TodayDuplicateItem {
+    orderNumber: string;
+    createdAtTime: string;
+    isDraft: boolean;
+    matchingItems: string[];
+}
+
+export interface CheckItemParam {
+    productTitle: string;
+    variantTitle?: string | undefined;
+    variantId?: number | undefined;
+}
+
+export interface CheckCustomerParam {
+    id?: number | undefined;
+    name: string;
+    phone?: string | undefined;
+}
+
+// Verificar pedidos y borradores del día creados para este cliente con productos idénticos
+export async function checkTodayDuplicates(
+    customer: CheckCustomerParam,
+    items: CheckItemParam[]
+): Promise<TodayDuplicateItem[]> {
+    try {
+        const client = await getShopifyClient();
+        const now = new Date();
+        const todayCR = now.toLocaleDateString('en-CA', { timeZone: 'America/Costa_Rica' });
+        const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+
+        const [ordersRes, draftsRes] = await Promise.all([
+            client.get('/orders.json?status=any&created_at_min=' + yesterday.toISOString() + '&limit=50').catch(() => ({ data: { orders: [] } })),
+            client.get('/draft_orders.json?status=any&limit=30').catch(() => ({ data: { draft_orders: [] } }))
+        ]);
+
+        const allOrders = [
+            ...((ordersRes.data?.orders || []).map((o: any) => ({ ...o, isDraft: false }))),
+            ...((draftsRes.data?.draft_orders || []).map((d: any) => ({ ...d, isDraft: true })))
+        ];
+
+        const normalize = (s: string) => (s || '')
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/[^a-z0-9]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+
+        const custNameNorm = normalize(customer.name);
+        const duplicates: TodayDuplicateItem[] = [];
+
+        for (const o of allOrders) {
+            const oDateCR = new Date(o.created_at).toLocaleDateString('en-CA', { timeZone: 'America/Costa_Rica' });
+            if (oDateCR !== todayCR) continue;
+
+            let custMatch = false;
+            if (customer.id && o.customer?.id && Number(customer.id) === Number(o.customer.id)) {
+                custMatch = true;
+            } else if (o.customer) {
+                const oCustName = normalize((o.customer.first_name || '') + ' ' + (o.customer.last_name || ''));
+                if (custNameNorm && (oCustName.includes(custNameNorm) || custNameNorm.includes(oCustName))) {
+                    custMatch = true;
+                }
+            }
+
+            if (!custMatch) continue;
+
+            const matchingItems: string[] = [];
+            for (const lineItem of (o.line_items || [])) {
+                for (const item of items) {
+                    let isMatch = false;
+                    if (item.variantId && lineItem.variant_id && Number(item.variantId) === Number(lineItem.variant_id)) {
+                        isMatch = true;
+                    } else {
+                        const lTitleNorm = normalize(lineItem.title || '');
+                        const iProdNorm = normalize(item.productTitle || '');
+                        const lVarNorm = normalize(lineItem.variant_title || '');
+                        const iVarNorm = normalize(item.variantTitle || '');
+
+                        if (lTitleNorm === iProdNorm && (lVarNorm === iVarNorm || (!lVarNorm && (iVarNorm === 'unico' || iVarNorm === 'default title')))) {
+                            isMatch = true;
+                        } else if (normalize(lineItem.name || '') === normalize((item.productTitle || '') + ' ' + (item.variantTitle || ''))) {
+                            isMatch = true;
+                        }
+                    }
+
+                    if (isMatch) {
+                        matchingItems.push(lineItem.name || lineItem.title || 'Producto coincidente');
+                    }
+                }
+            }
+
+            if (matchingItems.length > 0) {
+                const timeStr = new Date(o.created_at).toLocaleTimeString('es-CR', {
+                    timeZone: 'America/Costa_Rica',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+                duplicates.push({
+                    orderNumber: o.name || `#${o.id}`,
+                    createdAtTime: timeStr,
+                    isDraft: o.isDraft,
+                    matchingItems: Array.from(new Set(matchingItems))
+                });
+            }
+        }
+
+        return duplicates;
+    } catch (err: any) {
+        console.error('Error al verificar duplicados en Shopify:', err.message);
+        return [];
+    }
+}
+
