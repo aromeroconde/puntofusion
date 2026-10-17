@@ -86,6 +86,7 @@ Hito activo: Operación y Soporte
 | 2026-10-16 | Análisis de productos 100% delegado a IA (Cero código rígido) | El matching por código es inflexible y requiere mantenimiento ante nuevos productos o variantes | Se inyecta el catálogo vivo de Shopify en el prompt del LLM; la IA realiza el análisis semántico y adaptación instantánea a cualquier nuevo ítem del inventario | Usuario / Antigravity |
 | 2026-10-16 | Corrección de Plata 1000 vs Plata 950 y asignación de precio | La IA mapeaba numéricamente a Plata 950 y dejaba precio en 0 | Se instruye distinción explícita en el prompt y se toma el precio oficial del catálogo (₡14.000) por título exacto en vez de IDs numéricos volátiles | Usuario / Antigravity |
 | 2026-10-17 | Verificación anti-duplicados del mismo día por coincidencia exacta | Evitar doble registro de pedidos para un mismo cliente y producto | Se consultan órdenes/borradores de Shopify creados en el día calendario actual; si coincide producto, se alerta en el resumen | Usuario |
+| 2026-10-17 | Migración de modelo de IA a gpt-6-luna | Mayor velocidad, capacidad de razonamiento y precisión en pedidos complejos | Se actualiza el motor en `orderAgent.ts` a `gpt-6-luna` con soporte para configuración dinámica vía `OPENAI_MODEL` | Usuario |
 
 ## Próximo paso
 

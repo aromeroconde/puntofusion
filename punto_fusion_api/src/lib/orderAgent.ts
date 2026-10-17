@@ -18,6 +18,7 @@ const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
 const OPENAI_API_KEY = process.env['OPENAI_API_KEY'] || '';
+const OPENAI_MODEL = process.env['OPENAI_MODEL'] || 'gpt-6-luna';
 
 export interface OrderItem {
     productTitle: string;
@@ -176,14 +177,18 @@ Devuelve ÚNICAMENTE un JSON con esta estructura exacta:
 }`;
 
     try {
+        const payload: any = {
+            model: OPENAI_MODEL,
+            messages: [{ role: 'user', content: prompt }],
+            response_format: { type: 'json_object' }
+        };
+        if (OPENAI_MODEL.startsWith('gpt-4')) {
+            payload.temperature = 0.1;
+        }
+
         const response = await axios.post(
             'https://api.openai.com/v1/chat/completions',
-            {
-                model: 'gpt-4o-mini',
-                messages: [{ role: 'user', content: prompt }],
-                temperature: 0.1,
-                response_format: { type: 'json_object' }
-            },
+            payload,
             {
                 headers: {
                     'Authorization': `Bearer ${OPENAI_API_KEY}`,
