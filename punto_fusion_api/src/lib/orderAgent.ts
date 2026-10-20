@@ -375,8 +375,12 @@ export async function processConversationMessage(chatId: number, text: string, a
                        `🔗 [Ver pedido en Shopify Admin](${adminUrl})`;
             }
         } catch (error: any) {
-            console.error('Error enviando a Shopify:', error);
-            return `❌ Error al conectar con Shopify: ${error?.response?.data?.errors || error.message}`;
+            logError('Error enviando a Shopify:', error);
+            const errData = error?.response?.data?.errors;
+            const errorDetails = errData 
+                ? (typeof errData === 'object' ? JSON.stringify(errData) : String(errData))
+                : error.message;
+            return `❌ Error al conectar con Shopify: ${errorDetails}`;
         }
     }
 

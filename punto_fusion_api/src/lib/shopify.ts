@@ -330,7 +330,7 @@ export async function createShopifyOrder(params: CreateOrderParams) {
 
     const nameParts = params.customerName.trim().split(/\s+/);
     const firstName = nameParts[0] || 'Cliente';
-    const lastName = nameParts.slice(1).join(' ') || '';
+    const lastName = nameParts.slice(1).join(' ') || '-';
 
     const customerPayload = params.customerId 
         ? { id: params.customerId }
@@ -345,7 +345,10 @@ export async function createShopifyOrder(params: CreateOrderParams) {
             line_items: params.items.map(item => ({
                 ...(item.variantId ? { variant_id: item.variantId } : { title: item.title || 'Item personalizado' }),
                 quantity: item.quantity,
-                ...(item.price && parseFloat(item.price) > 0 ? { price: item.price } : {})
+                ...(item.variantId
+                    ? (item.price && parseFloat(item.price) > 0 ? { price: item.price } : {})
+                    : { price: item.price ? item.price : '0.00' }
+                )
             })),
             customer: customerPayload,
             financial_status: 'pending',
@@ -364,7 +367,7 @@ export async function createShopifyDraftOrder(params: CreateOrderParams) {
 
     const nameParts = params.customerName.trim().split(/\s+/);
     const firstName = nameParts[0] || 'Cliente';
-    const lastName = nameParts.slice(1).join(' ') || '';
+    const lastName = nameParts.slice(1).join(' ') || '-';
 
     const customerPayload = params.customerId 
         ? { id: params.customerId }
@@ -379,7 +382,10 @@ export async function createShopifyDraftOrder(params: CreateOrderParams) {
             line_items: params.items.map(item => ({
                 ...(item.variantId ? { variant_id: item.variantId } : { title: item.title || 'Item personalizado' }),
                 quantity: item.quantity,
-                ...(item.price && parseFloat(item.price) > 0 ? { price: item.price } : {})
+                ...(item.variantId
+                    ? (item.price && parseFloat(item.price) > 0 ? { price: item.price } : {})
+                    : { price: item.price ? item.price : '0.00' }
+                )
             })),
             customer: customerPayload,
             note: params.note || 'Borrador creado por asistente interno Telegram',

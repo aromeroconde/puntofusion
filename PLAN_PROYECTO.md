@@ -62,6 +62,7 @@ Hito activo: Operación y Soporte
 | T-05 | H4 | Pruebas de integración E2E | Verificación de orden creada en `tiendapuntofusion` | T-04, T-06, T-07 | P1 | hecha | Antigravity | 2026-10-16: Verificada creación de 6 ítems simultáneos (empanadas, almojábana, broca 0.9, plata 1000, lijas y piedra personalizada) en Borrador #D2908 |
 | T-08 | H3 | Verificación de pedidos duplicados (mismo día y producto exacto) | Consulta de pedidos y borradores del día para el cliente en Shopify; alerta si hay coincidencia exacta de producto antes de confirmar | T-03, T-04, T-07 | P1 | hecha | Antigravity | 2026-10-17: Probado con órdenes reales de hoy (#3951 y #3952); detecta coincidencia exacta de variante y permite confirmación adicional o cancelación |
 | T-09 | H3 | Soporte para notas de voz largas (Timeouts a 5 min, feedback dinámico y log persistente) | Timeouts extendidos para notas de 2-5 min (60s getFile, 180s descarga, 300s Whisper), indicador de duración, typing heartbeat y `bot.log` | T-06 | P1 | hecha | Antigravity | 2026-10-20: Compilado y verificado; soporta notas de voz de hasta 5 minutos sin bloqueo |
+| T-10 | H3 | Corrección de creación de clientes con un solo nombre en Shopify | Shopify rechaza `customer.last_name` en blanco (422); se asigna placeholder automático y serialización limpia de errores | T-03 | P1 | hecha | Antigravity | 2026-10-20: Probado creando orden con cliente 'Paulín'; orden #3961 creada exitosamente |
 
 ## Bloqueos y riesgos relevantes
 
@@ -89,6 +90,7 @@ Hito activo: Operación y Soporte
 | 2026-10-17 | Verificación anti-duplicados del mismo día por coincidencia exacta | Evitar doble registro de pedidos para un mismo cliente y producto | Se consultan órdenes/borradores de Shopify creados en el día calendario actual; si coincide producto, se alerta en el resumen | Usuario |
 | 2026-10-17 | Migración de modelo de IA a gpt-6-luna | Mayor velocidad, capacidad de razonamiento y precisión en pedidos complejos | Se actualiza el motor en `orderAgent.ts` a `gpt-6-luna` con soporte para configuración dinámica vía `OPENAI_MODEL` | Usuario |
 | 2026-10-20 | Corrección de timeout en notas de voz y logger persistente | Las notas de voz fallaban por timeouts restrictivos (15s/25s/30s) ante latencia de red o audios largos | Se aumentaron los timeouts (30s/60s/90s), se añadió feedback en vivo por etapas y logging persistente en `bot.log` | Usuario / Antigravity |
+| 2026-10-20 | Corrección error 422 Shopify por cliente con un solo nombre | En pedidos con clientes sin apellido (ej. "Paulín"), Shopify rechazaba la orden con error 422 (customer.last_name can't be blank) | Se asegura apellido por defecto '-' en órdenes/borradores y se formatea el mensaje de error para evitar `[object Object]` | Usuario / Antigravity |
 
 ## Próximo paso
 
