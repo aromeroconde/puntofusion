@@ -287,6 +287,127 @@ export interface MatchedCustomer {
     company?: string | undefined;
 }
 
+// Caché en memoria de clientes
+let cachedCustomers: MatchedCustomer[] = [];
+let customersCachedAt: number = 0;
+
+export async function getShopifyCustomers(forceRefresh = false): Promise<MatchedCustomer[]> {
+    const now = Date.now();
+    if (!forceRefresh && cachedCustomers.length > 0 && now - customersCachedAt < 5 * 60 * 1000) {
+        return cachedCustomers;
+    }
+
+    try {
+        const client = await getShopifyClient();
+        const response = await client.get('/customers.json?limit=250&fields=id,first_name,last_name,email,phone,orders_count,default_address');
+        const raw = response.data.customers || [];
+        cachedCustomers = raw.map((c: any) => ({
+            id: c.id,
+            firstName: c.first_name || '',
+            lastName: c.last_name || '',
+            fullName: `${c.first_name || ''} ${c.last_name || ''}`.trim() || 'Sin nombre',
+            email: c.email || undefined,
+            phone: c.phone || c.default_address?.phone || undefined,
+            ordersCount: c.orders_count || 0,
+            company: c.default_address?.company || undefined
+        }));
+        customersCachedAt = now;
+        return cachedCustomers;
+    } catch (error: any) {
+        console.error('Error obteniendo clientes de Shopify:', error?.response?.data || error.message);
+        return cachedCustomers;
+    }
+}
+
+function normalizeCustomerStr(s: string): string {
+    return (s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+}
+
+function calcCustomerLevenshtein(a: string, b: string): number {
+    const m = a.length, n = b.length;
+    const d: number[][] = [];
+    for (let i = 0; i <= m; i++) {
+        d[i] = new Array(n + 1).fill(0);
+        d[i]![0] = i;
+    }
+    for (let j = 0; j <= n; j++) {
+        d[0]![j] = j;
+    }
+    for (let i = 1; i <= m; i++) {
+        const row = d[i]!;
+        const prevRow = d[i - 1]!;
+        for (let j = 1; j <= n; j++) {
+            const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+            row[j] = Math.min(
+                prevRow[j]! + 1,
+                row[j - 1]! + 1,
+                prevRow[j - 1]! + cost
+            );
+        }
+    }
+    return d[m]![n]!;
+}
+
+export interface CustomerSearchResult {
+    exactMatch: MatchedCustomer | null;
+    candidates: MatchedCustomer[];
+}
+
+export async function searchShopifyCustomersSmart(query: string): Promise<CustomerSearchResult> {
+    if (!query || query.trim().length < 2) {
+        return { exactMatch: null, candidates: [] };
+    }
+
+    const customers = await getShopifyCustomers();
+    const qNorm = normalizeCustomerStr(query);
+    const qWords = qNorm.split(/\s+/).filter(w => w.length > 1);
+
+    const scored: { customer: MatchedCustomer; score: number }[] = [];
+
+    for (const c of customers) {
+        if (!c.firstName || c.firstName.toLowerCase().includes('test') || c.lastName === '-') continue;
+
+        const fnNorm = normalizeCustomerStr(c.firstName);
+        const lnNorm = normalizeCustomerStr(c.lastName);
+        const fullNorm = normalizeCustomerStr(c.fullName);
+
+        let score = 0;
+        if (fullNorm === qNorm) {
+            score = 100;
+        } else if (fnNorm === qNorm) {
+            score = 92;
+        } else if (qNorm.length >= 3 && fullNorm.includes(qNorm)) {
+            score = 85;
+        } else if (fullNorm.length >= 3 && qNorm.includes(fullNorm)) {
+            score = 80;
+        } else {
+            for (const w of qWords) {
+                if (w.length >= 3) {
+                    if (fnNorm.startsWith(w) || w.startsWith(fnNorm)) score = Math.max(score, 75);
+                    if (lnNorm.startsWith(w) || w.startsWith(lnNorm)) score = Math.max(score, 70);
+                    const distFn = calcCustomerLevenshtein(w, fnNorm);
+                    if (distFn <= 2 && fnNorm.length >= 3) score = Math.max(score, 70 - distFn * 5);
+                }
+            }
+        }
+
+        if (score >= 70) {
+            scored.push({ customer: c, score });
+        }
+    }
+
+    scored.sort((a, b) => b.score - a.score || b.customer.ordersCount - a.customer.ordersCount);
+
+    if (scored.length > 0 && scored[0]!.score === 100) {
+        return { exactMatch: scored[0]!.customer, candidates: [] };
+    }
+    if (scored.length === 1 && scored[0]!.score >= 90) {
+        return { exactMatch: scored[0]!.customer, candidates: [] };
+    }
+
+    return { exactMatch: null, candidates: scored.slice(0, 3).map(s => s.customer) };
+}
+
 export async function searchShopifyCustomers(query: string): Promise<MatchedCustomer[]> {
     if (!query || query.trim().length < 2) return [];
     try {

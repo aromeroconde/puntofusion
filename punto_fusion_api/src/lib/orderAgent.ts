@@ -6,6 +6,7 @@ import { logInfo, logWarn, logError } from './logger.js';
 import {
     getCatalogProducts,
     searchShopifyCustomers,
+    searchShopifyCustomersSmart,
     createShopifyOrder,
     createShopifyDraftOrder,
     checkTodayDuplicates,
@@ -44,12 +45,18 @@ export interface PendingVariantClarification {
     variants: MatchedVariant[];
 }
 
+export interface PendingCustomerClarification {
+    originalQuery: string;
+    candidates: MatchedCustomer[];
+}
+
 export interface ChatSession {
     chatId: number;
     customer: SessionCustomer | null;
     items: OrderItem[];
     wantsDraft: boolean;
     pendingVariant?: PendingVariantClarification | null;
+    pendingCustomer?: PendingCustomerClarification | null;
     pendingConfirmation: boolean;
     lastUpdate: number;
 }
@@ -65,6 +72,7 @@ export function getSession(chatId: number): ChatSession {
             items: [],
             wantsDraft: false,
             pendingVariant: null,
+            pendingCustomer: null,
             pendingConfirmation: false,
             lastUpdate: Date.now()
         };
@@ -303,6 +311,114 @@ export async function processConversationMessage(chatId: number, text: string, a
         return '❌ Pedido cancelado. La orden fue descartada. ¿En qué más te puedo ayudar?';
     }
 
+    // 0b. Respuesta directa a aclaración pendiente de cliente
+    if (session.pendingCustomer) {
+        const cand = session.pendingCustomer.candidates;
+        let chosenCustomer: SessionCustomer | null = null;
+        const newCustIdx = cand.length + 1;
+        const num = parseInt(lowerText, 10);
+
+        if (!isNaN(num)) {
+            if (num >= 1 && num <= cand.length) {
+                const c = cand[num - 1]!;
+                chosenCustomer = {
+                    id: c.id,
+                    name: c.fullName,
+                    phone: c.phone,
+                    isExisting: true,
+                    ordersCount: c.ordersCount
+                };
+            } else if (num === newCustIdx || (cand.length === 0 && num === 1)) {
+                chosenCustomer = {
+                    name: session.pendingCustomer.originalQuery,
+                    isExisting: false,
+                    ordersCount: 0
+                };
+            }
+        } else if (lowerText.includes('nuevo') || lowerText === 'es nuevo' || lowerText === 'cliente nuevo') {
+            chosenCustomer = {
+                name: session.pendingCustomer.originalQuery,
+                isExisting: false,
+                ordersCount: 0
+            };
+        } else if (cand.length === 0 && num === 2) {
+            session.pendingCustomer = null;
+            return 'Entendido. Por favor dime el nombre o apellido del cliente para buscarlo:';
+        } else {
+            const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+            const matchingCand = cand.find(c => norm(c.fullName).includes(norm(lowerText)) || norm(lowerText).includes(norm(c.fullName)));
+            if (matchingCand) {
+                chosenCustomer = {
+                    id: matchingCand.id,
+                    name: matchingCand.fullName,
+                    phone: matchingCand.phone,
+                    isExisting: true,
+                    ordersCount: matchingCand.ordersCount
+                };
+            }
+        }
+
+        if (chosenCustomer) {
+            session.customer = chosenCustomer;
+            session.pendingCustomer = null;
+
+            // Si además hay variante pendiente, preguntar por la variante
+            if (session.pendingVariant) {
+                let askMsg = `✅ Cliente seleccionado: *${chosenCustomer.name}*\n\n`;
+                askMsg += `📦 Para *"${session.pendingVariant.productTitle}"*, ¿cuál medida o variante necesitas?:\n\n`;
+                askMsg += session.pendingVariant.variants.map((v, i) => `${i + 1}. *${v.title}* — ₡${parseFloat(v.price).toLocaleString('es-CR')}`).join('\n');
+                askMsg += `\n\n_(Puedes responder con el número o el nombre)_`;
+                return askMsg;
+            }
+
+            // Si los ítems están listos, mostrar el resumen de confirmación
+            if (session.items.length > 0) {
+                session.pendingConfirmation = true;
+                const summary = await generateSummaryText(session);
+                return `✅ Cliente seleccionado: *${chosenCustomer.name}*\n\n` + summary;
+            }
+
+            return `Entendido cliente: *${chosenCustomer.name}*. ¿Qué productos deseas agregar a este pedido?`;
+        }
+    }
+
+    // 0c. Respuesta directa a aclaración pendiente de variante
+    if (session.pendingVariant && !session.pendingCustomer) {
+        const cand = session.pendingVariant.variants;
+        let chosenVariant: MatchedVariant | null = null;
+        const num = parseInt(lowerText, 10);
+
+        if (!isNaN(num) && num >= 1 && num <= cand.length) {
+            chosenVariant = cand[num - 1]!;
+        } else {
+            const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+            const matching = cand.find(v => norm(v.title) === norm(lowerText) || norm(v.title).includes(norm(lowerText)) || norm(lowerText).includes(norm(v.title)));
+            if (matching) chosenVariant = matching;
+        }
+
+        if (chosenVariant) {
+            session.items.push({
+                productTitle: session.pendingVariant.productTitle,
+                variantTitle: chosenVariant.title,
+                variantId: chosenVariant.variantId,
+                quantity: session.pendingVariant.quantity,
+                price: chosenVariant.price
+            });
+            const vName = chosenVariant.title;
+            session.pendingVariant = null;
+
+            if (session.customer && session.items.length > 0) {
+                session.pendingConfirmation = true;
+                const summary = await generateSummaryText(session);
+                return `✅ Variante agregada: *${vName}*\n\n` + summary;
+            }
+
+            if (!session.customer) {
+                return `✅ Variante agregada: *${vName}*.\n\n👤 ¿A nombre de qué cliente registramos este pedido? *(El cliente es obligatorio)*`;
+            }
+        }
+    }
+
     // Obtener catálogo vivo de Shopify
     const products = await getCatalogProducts();
     const catalogText = buildCatalogText(products);
@@ -384,9 +500,31 @@ export async function processConversationMessage(chatId: number, text: string, a
         }
     }
 
-    // 3. Si viene cliente en el mensaje, resolverlo en Shopify
-    if (analysis.customer_name) {
-        session.customer = await resolveCustomer(analysis.customer_name);
+    // 3. Si viene cliente en el mensaje, buscarlo y verificarlo en Shopify
+    if (analysis.customer_name && (!session.customer || session.customer.name !== analysis.customer_name)) {
+        const searchRes = await searchShopifyCustomersSmart(analysis.customer_name);
+        if (searchRes.exactMatch) {
+            session.customer = {
+                id: searchRes.exactMatch.id,
+                name: searchRes.exactMatch.fullName,
+                phone: searchRes.exactMatch.phone,
+                isExisting: true,
+                ordersCount: searchRes.exactMatch.ordersCount
+            };
+            session.pendingCustomer = null;
+        } else if (searchRes.candidates.length > 0) {
+            session.pendingCustomer = {
+                originalQuery: analysis.customer_name,
+                candidates: searchRes.candidates
+            };
+            session.customer = null;
+        } else {
+            session.pendingCustomer = {
+                originalQuery: analysis.customer_name,
+                candidates: []
+            };
+            session.customer = null;
+        }
     }
 
     // 4. Si el usuario especificó preferencia de borrador
@@ -477,20 +615,23 @@ export async function processConversationMessage(chatId: number, text: string, a
                 }))
             };
 
-            let askMsg = '';
-            if (session.items.length > 0) {
-                askMsg += `✅ Agregué al pedido:\n`;
-                for (const it of session.items) {
-                    const vDisplay = it.variantTitle && it.variantTitle !== 'Único' ? ` (${it.variantTitle})` : '';
-                    askMsg += `• ${it.quantity}x *${it.productTitle}*${vDisplay}\n`;
+            // Solo retornar de inmediato si el cliente ya está completamente aclarado
+            if (session.customer && !session.pendingCustomer) {
+                let askMsg = '';
+                if (session.items.length > 0) {
+                    askMsg += `✅ Agregué al pedido:\n`;
+                    for (const it of session.items) {
+                        const vDisplay = it.variantTitle && it.variantTitle !== 'Único' ? ` (${it.variantTitle})` : '';
+                        askMsg += `• ${it.quantity}x *${it.productTitle}*${vDisplay}\n`;
+                    }
+                    askMsg += `\n`;
                 }
-                askMsg += `\n`;
-            }
 
-            askMsg += `📦 Para *"${prod.title}"*, ¿cuál medida o variante necesitas?:\n\n`;
-            askMsg += session.pendingVariant.variants.map((v, i) => `${i + 1}. *${v.title}* — ₡${parseFloat(v.price).toLocaleString('es-CR')}`).join('\n');
-            askMsg += `\n\n_(Puedes responder con el número o el nombre, ej: "1" o "${session.pendingVariant.variants[0]?.title}")_`;
-            return askMsg;
+                askMsg += `📦 Para *"${prod.title}"*, ¿cuál medida o variante necesitas?:\n\n`;
+                askMsg += session.pendingVariant.variants.map((v, i) => `${i + 1}. *${v.title}* — ₡${parseFloat(v.price).toLocaleString('es-CR')}`).join('\n');
+                askMsg += `\n\n_(Puedes responder con el número o el nombre, ej: "1" o "${session.pendingVariant.variants[0]?.title}")_`;
+                return askMsg;
+            }
         }
     }
 
@@ -499,7 +640,7 @@ export async function processConversationMessage(chatId: number, text: string, a
         warningPrefix = `⚠️ No encontré en el catálogo: *${analysis.not_found.join(', ')}*.\n¿Cómo aparece registrado en el inventario?\n\n`;
     }
 
-    // 8. CLIENTE OBLIGATORIO: Si aún no tenemos cliente, pedirlo sí o sí
+    // 8. CLIENTE OBLIGATORIO / ACLARACIÓN DE CLIENTE
     if (!session.customer) {
         let msg = warningPrefix;
         if (session.items.length > 0) {
@@ -510,11 +651,49 @@ export async function processConversationMessage(chatId: number, text: string, a
             }
             msg += `\n`;
         }
+
+        if (session.pendingCustomer && session.pendingCustomer.candidates.length > 0) {
+            const cand = session.pendingCustomer.candidates;
+            msg += `👤 Para el cliente *"${session.pendingCustomer.originalQuery}"*, encontré estas opciones en el sistema:\n\n`;
+            cand.forEach((c, i) => {
+                const ordersTxt = c.ordersCount > 0 ? ` _(Cliente habitual - ${c.ordersCount} pedidos)_` : '';
+                msg += `${i + 1}. *${c.fullName}*${ordersTxt}\n`;
+            });
+            msg += `${cand.length + 1}. *Es un cliente nuevo* _(Registrar como "${session.pendingCustomer.originalQuery}")_\n\n`;
+            msg += `¿Cuál de ellos es? _(Puedes responder con el número o el nombre)_`;
+            return msg;
+        }
+
+        if (session.pendingCustomer && session.pendingCustomer.candidates.length === 0) {
+            msg += `👤 No encontré a ningún cliente registrado como *"${session.pendingCustomer.originalQuery}"*.\n\n`;
+            msg += `1. *Registrar como cliente nuevo*\n`;
+            msg += `2. *Escribir otro nombre o buscar de nuevo*\n\n`;
+            msg += `¿Deseas registrarlo como cliente nuevo o cuál es su nombre?`;
+            return msg;
+        }
+
         msg += `👤 ¿A nombre de qué cliente registramos este pedido? *(El cliente es obligatorio)*`;
         return msg;
     }
 
-    // 9. Si tenemos cliente y productos, mostrar resumen de confirmación
+    // 9. Si hay variante pendiente de aclarar
+    if (session.pendingVariant) {
+        let askMsg = warningPrefix;
+        if (session.items.length > 0) {
+            askMsg += `✅ Productos listos:\n`;
+            for (const it of session.items) {
+                const vDisplay = it.variantTitle && it.variantTitle !== 'Único' ? ` (${it.variantTitle})` : '';
+                askMsg += `• ${it.quantity}x *${it.productTitle}*${vDisplay}\n`;
+            }
+            askMsg += `\n`;
+        }
+        askMsg += `📦 Para *"${session.pendingVariant.productTitle}"*, ¿cuál medida o variante necesitas?:\n\n`;
+        askMsg += session.pendingVariant.variants.map((v, i) => `${i + 1}. *${v.title}* — ₡${parseFloat(v.price).toLocaleString('es-CR')}`).join('\n');
+        askMsg += `\n\n_(Puedes responder con el número o el nombre)_`;
+        return askMsg;
+    }
+
+    // 10. Si tenemos cliente y productos, mostrar resumen de confirmación
     if (session.items.length > 0) {
         session.pendingConfirmation = true;
         const summary = await generateSummaryText(session);
