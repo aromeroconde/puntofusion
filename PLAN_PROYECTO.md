@@ -1,10 +1,10 @@
 # Plan del proyecto: Punto Fusión - Asistente Telegram & Shopify
 
 Creado: 2026-10-16
-Última actualización: 2026-10-17
-Última revisión: 2026-10-17
+Última actualización: 2026-10-20
+Última revisión: 2026-10-20
 Zona horaria: America/Bogota (UTC-5)
-Base de revisión: Validación anti-duplicados del mismo día con órdenes reales de Shopify (#3951 y #3952).
+Base de revisión: Resolución de incidentes de timeout en procesamiento de notas de voz y persistencia de logs.
 Fuente canónica: PLAN_PROYECTO.md
 Estado del plan: Propuesto / en ejecución inicial
 
@@ -61,6 +61,7 @@ Hito activo: Operación y Soporte
 | T-07 | H3 | Búsqueda difusa y resolución interactiva (Productos y Clientes) | Búsqueda nativa a nivel de variantes (ej. empanadas/almojábanas bajo Café Catalina), soporte multi-ítem, tolerancia fonética Levenshtein e ítems personalizados | T-03, T-04 | P1 | hecha | Antigravity | 2026-10-16: searchProductsSmart con indexación de variantes y resolución directa en vivo |
 | T-05 | H4 | Pruebas de integración E2E | Verificación de orden creada en `tiendapuntofusion` | T-04, T-06, T-07 | P1 | hecha | Antigravity | 2026-10-16: Verificada creación de 6 ítems simultáneos (empanadas, almojábana, broca 0.9, plata 1000, lijas y piedra personalizada) en Borrador #D2908 |
 | T-08 | H3 | Verificación de pedidos duplicados (mismo día y producto exacto) | Consulta de pedidos y borradores del día para el cliente en Shopify; alerta si hay coincidencia exacta de producto antes de confirmar | T-03, T-04, T-07 | P1 | hecha | Antigravity | 2026-10-17: Probado con órdenes reales de hoy (#3951 y #3952); detecta coincidencia exacta de variante y permite confirmación adicional o cancelación |
+| T-09 | H3 | Optimización de notas de voz (Timeouts extendidos, feedback dinámico y log persistente) | Timeouts ampliados (30s getFile, 60s descarga, 90s Whisper), feedback por etapas al usuario y registro de actividad/errores en `bot.log` | T-06 | P1 | hecha | Antigravity | 2026-10-20: Módulos compilados y probados localmente |
 
 ## Bloqueos y riesgos relevantes
 
@@ -87,8 +88,9 @@ Hito activo: Operación y Soporte
 | 2026-10-16 | Corrección de Plata 1000 vs Plata 950 y asignación de precio | La IA mapeaba numéricamente a Plata 950 y dejaba precio en 0 | Se instruye distinción explícita en el prompt y se toma el precio oficial del catálogo (₡14.000) por título exacto en vez de IDs numéricos volátiles | Usuario / Antigravity |
 | 2026-10-17 | Verificación anti-duplicados del mismo día por coincidencia exacta | Evitar doble registro de pedidos para un mismo cliente y producto | Se consultan órdenes/borradores de Shopify creados en el día calendario actual; si coincide producto, se alerta en el resumen | Usuario |
 | 2026-10-17 | Migración de modelo de IA a gpt-6-luna | Mayor velocidad, capacidad de razonamiento y precisión en pedidos complejos | Se actualiza el motor en `orderAgent.ts` a `gpt-6-luna` con soporte para configuración dinámica vía `OPENAI_MODEL` | Usuario |
+| 2026-10-20 | Corrección de timeout en notas de voz y logger persistente | Las notas de voz fallaban por timeouts restrictivos (15s/25s/30s) ante latencia de red o audios largos | Se aumentaron los timeouts (30s/60s/90s), se añadió feedback en vivo por etapas y logging persistente en `bot.log` | Usuario / Antigravity |
 
 ## Próximo paso
 
-Implementar función de verificación de pedidos del día en `shopify.ts` e integrarla en el generador de resumen de `orderAgent.ts`.
+Desplegar la nueva versión al VPS y monitorear el procesamiento de notas de voz en vivo mediante `bot.log`.
 

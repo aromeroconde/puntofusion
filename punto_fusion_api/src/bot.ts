@@ -4,6 +4,7 @@ import { fileURLToPath } from 'url';
 import path from 'path';
 import { processConversationMessage, resetSession } from './lib/orderAgent.js';
 import { transcribeTelegramVoice } from './lib/transcriber.js';
+import { logInfo, logError } from './lib/logger.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -20,7 +21,7 @@ if (!TELEGRAM_BOT_TOKEN) {
 export const bot = new Bot(TELEGRAM_BOT_TOKEN);
 
 bot.catch((err) => {
-    console.error('🔴 Error capturado en bot de Telegram:', err.error || err);
+    logError('🔴 Error capturado en bot de Telegram:', err.error || err);
 });
 
 // Comando /start o /reiniciar
@@ -46,27 +47,43 @@ bot.on('message:text', async (ctx) => {
 
     try {
         const username = ctx.from?.username || ctx.from?.first_name || 'Asesor';
+        logInfo(`[Chat ${ctx.chat.id}] Texto recibido de @${username}: "${text}"`);
         const response = await processConversationMessage(ctx.chat.id, text, username);
         await ctx.reply(response, { parse_mode: 'Markdown' });
     } catch (error: any) {
-        console.error('Error procesando mensaje:', error);
-        await ctx.reply(`❌ Ocurrió un error: ${error.message}`);
+        logError(`[Chat ${ctx.chat.id}] Error procesando mensaje de texto:`, error);
+        await ctx.reply(`❌ Ocurrió un error al procesar tu solicitud: ${error.message}`);
     }
 });
 
 // Manejador de notas de voz y audios
 bot.on(['message:voice', 'message:audio'], async (ctx) => {
+    const username = ctx.from?.username || ctx.from?.first_name || 'Asesor';
     await ctx.replyWithChatAction('typing');
 
     try {
         const fileId = ctx.message.voice?.file_id || ctx.message.audio?.file_id;
+        const duration = ctx.message.voice?.duration || ctx.message.audio?.duration || 0;
         if (!fileId) {
             await ctx.reply('❌ No se encontró el archivo de audio.');
             return;
         }
 
-        const statusMsg = await ctx.reply('🎙️ _Escuchando tu nota de voz..._', { parse_mode: 'Markdown' });
-        const transcribedText = await transcribeTelegramVoice(fileId);
+        logInfo(`[Chat ${ctx.chat.id}] Nota de voz recibida de @${username} (duración: ${duration}s, fileId: ${fileId})`);
+        const statusMsg = await ctx.reply('🎙️ _Descargando nota de voz..._', { parse_mode: 'Markdown' });
+
+        const transcribedText = await transcribeTelegramVoice(fileId, async (stage) => {
+            if (stage === 'transcribing') {
+                try {
+                    await ctx.api.editMessageText(
+                        ctx.chat.id,
+                        statusMsg.message_id,
+                        '🎙️ _Transcribiendo audio con IA..._',
+                        { parse_mode: 'Markdown' }
+                    );
+                } catch {}
+            }
+        });
 
         if (!transcribedText) {
             await ctx.api.editMessageText(ctx.chat.id, statusMsg.message_id, '❌ No se detectó ninguna voz en el audio.');
@@ -81,22 +98,33 @@ bot.on(['message:voice', 'message:audio'], async (ctx) => {
             { parse_mode: 'Markdown' }
         );
 
+        // Notificar que se está analizando
+        await ctx.replyWithChatAction('typing');
+
         // Procesar en la conversación
-        const username = ctx.from?.username || ctx.from?.first_name || 'Asesor';
+        logInfo(`[Chat ${ctx.chat.id}] Procesando orden para: "${transcribedText}"`);
         const response = await processConversationMessage(ctx.chat.id, transcribedText, username);
         await ctx.reply(response, { parse_mode: 'Markdown' });
 
     } catch (error: any) {
-        console.error('Error al procesar audio:', error);
-        await ctx.reply(`❌ Error procesando la nota de voz: ${error.message}`);
+        logError(`[Chat ${ctx.chat.id}] Error procesando audio:`, error);
+        
+        let userMsg = `❌ Error procesando la nota de voz: ${error.message}`;
+        if (error.message && error.message.toLowerCase().includes('timeout') || error.message.toLowerCase().includes('excedió el tiempo')) {
+            userMsg = `⚠️ *Tiempo de espera agotado al procesar el audio*\n\n` +
+                      `La descarga desde Telegram o la transcripción tardó más de lo habitual debido a congestión de la red.\n\n` +
+                      `👉 Por favor reenvía la nota de voz o, si prefieres, escríbeme el pedido en texto.`;
+        }
+
+        await ctx.reply(userMsg, { parse_mode: 'Markdown' });
     }
 });
 
 export async function startBot() {
-    console.log('🤖 Iniciando bot conversacional de Telegram (@PuntoFusionShopBot)...');
+    logInfo('🤖 Iniciando bot conversacional de Telegram (@PuntoFusionShopBot)...');
     bot.start({
         onStart: (info) => {
-            console.log(`✅ Bot @${info.username} iniciado (100% conversacional, voz y texto, sin botones).`);
+            logInfo(`✅ Bot @${info.username} iniciado (100% conversacional, voz y texto, sin botones).`);
         }
     });
 }

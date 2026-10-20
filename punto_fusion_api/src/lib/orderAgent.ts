@@ -2,6 +2,7 @@ import axios from 'axios';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import path from 'path';
+import { logInfo, logWarn, logError } from './logger.js';
 import {
     getCatalogProducts,
     searchShopifyCustomers,
@@ -186,6 +187,8 @@ Devuelve ÚNICAMENTE un JSON con esta estructura exacta:
             payload.temperature = 0.1;
         }
 
+        const t0 = Date.now();
+        logInfo(`[AI] Enviando prompt a ${OPENAI_MODEL}...`);
         const response = await axios.post(
             'https://api.openai.com/v1/chat/completions',
             payload,
@@ -193,14 +196,16 @@ Devuelve ÚNICAMENTE un JSON con esta estructura exacta:
                 headers: {
                     'Authorization': `Bearer ${OPENAI_API_KEY}`,
                     'Content-Type': 'application/json'
-                }
+                },
+                timeout: 45000
             }
         );
 
         const content = response.data.choices[0]?.message?.content;
+        logInfo(`[AI] Respuesta recibida de ${OPENAI_MODEL} en ${Date.now() - t0}ms`);
         return content ? JSON.parse(content) : null;
     } catch (err: any) {
-        console.error('Error analizando con IA:', err.message);
+        logError('Error analizando con IA:', err);
         return null;
     }
 }
