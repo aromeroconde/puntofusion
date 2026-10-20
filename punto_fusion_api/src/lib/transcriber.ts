@@ -34,7 +34,7 @@ export async function transcribeTelegramVoice(
     let filePath: string | null = null;
     let attempts = 0;
 
-    // 1. Obtener file_path de Telegram con reintentos
+    // 1. Obtener file_path de Telegram con reintentos (timeout 60s)
     while (attempts < 3 && !filePath) {
         attempts++;
         const t0 = Date.now();
@@ -42,7 +42,7 @@ export async function transcribeTelegramVoice(
             logInfo(`[Voice] 1/3 Solicitando getFile a Telegram (intento ${attempts})...`);
             const fileInfoRes = await axios.get(
                 `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getFile?file_id=${fileId}`,
-                { timeout: 30000 }
+                { timeout: 60000 }
             );
 
             if (fileInfoRes.data?.ok && fileInfoRes.data?.result?.file_path) {
@@ -67,7 +67,7 @@ export async function transcribeTelegramVoice(
         try { await onProgress('downloading'); } catch {}
     }
 
-    // 2. Descargar el archivo de audio con reintentos y timeout extendido (60s)
+    // 2. Descargar el archivo de audio con reintentos y timeout extendido (3 minutos = 180s)
     const fileDownloadUrl = `https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${filePath}`;
     let audioBuffer: Buffer | null = null;
     attempts = 0;
@@ -79,7 +79,7 @@ export async function transcribeTelegramVoice(
             logInfo(`[Voice] 2/3 Descargando audio desde Telegram CDN (intento ${attempts})...`);
             const audioResponse = await axios.get(fileDownloadUrl, {
                 responseType: 'arraybuffer',
-                timeout: 60000
+                timeout: 180000
             });
             audioBuffer = Buffer.from(audioResponse.data);
             logInfo(`[Voice] Descarga exitosa en ${Date.now() - t0}ms (${audioBuffer.length} bytes)`);
@@ -99,9 +99,9 @@ export async function transcribeTelegramVoice(
         try { await onProgress('transcribing'); } catch {}
     }
 
-    // 3. Enviar a Whisper con FormData y timeout extendido (90s)
+    // 3. Enviar a Whisper con FormData y timeout extendido (5 minutos = 300s para notas largas)
     const tWhisper = Date.now();
-    logInfo(`[Voice] 3/3 Enviando ${audioBuffer.length} bytes a Whisper API (timeout: 90s)...`);
+    logInfo(`[Voice] 3/3 Enviando ${audioBuffer.length} bytes a Whisper API (timeout: 5 min)...`);
 
     const blob = new Blob([new Uint8Array(audioBuffer)], { type: 'audio/ogg' });
     const formData = new FormData();
@@ -118,7 +118,7 @@ export async function transcribeTelegramVoice(
                 headers: {
                     'Authorization': `Bearer ${OPENAI_API_KEY}`
                 },
-                timeout: 90000
+                timeout: 300000
             }
         );
 

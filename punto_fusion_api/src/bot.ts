@@ -61,6 +61,11 @@ bot.on(['message:voice', 'message:audio'], async (ctx) => {
     const username = ctx.from?.username || ctx.from?.first_name || 'Asesor';
     await ctx.replyWithChatAction('typing');
 
+    // Mantener indicador de "escribiendo..." activo durante el procesamiento del audio
+    const typingInterval = setInterval(() => {
+        ctx.replyWithChatAction('typing').catch(() => {});
+    }, 4000);
+
     try {
         const fileId = ctx.message.voice?.file_id || ctx.message.audio?.file_id;
         const duration = ctx.message.voice?.duration || ctx.message.audio?.duration || 0;
@@ -69,8 +74,14 @@ bot.on(['message:voice', 'message:audio'], async (ctx) => {
             return;
         }
 
+        const durMin = Math.floor(duration / 60);
+        const durSec = duration % 60;
+        const durStr = duration > 0 
+            ? (durMin > 0 ? `${durMin}:${durSec.toString().padStart(2, '0')} min` : `${durSec}s`)
+            : 'audio';
+
         logInfo(`[Chat ${ctx.chat.id}] Nota de voz recibida de @${username} (duración: ${duration}s, fileId: ${fileId})`);
-        const statusMsg = await ctx.reply('🎙️ _Descargando nota de voz..._', { parse_mode: 'Markdown' });
+        const statusMsg = await ctx.reply(`🎙️ _Descargando nota de voz (${durStr})..._`, { parse_mode: 'Markdown' });
 
         const transcribedText = await transcribeTelegramVoice(fileId, async (stage) => {
             if (stage === 'transcribing') {
@@ -78,7 +89,7 @@ bot.on(['message:voice', 'message:audio'], async (ctx) => {
                     await ctx.api.editMessageText(
                         ctx.chat.id,
                         statusMsg.message_id,
-                        '🎙️ _Transcribiendo audio con IA..._',
+                        `🎙️ _Transcribiendo audio (${durStr}) con IA..._`,
                         { parse_mode: 'Markdown' }
                     );
                 } catch {}
@@ -94,12 +105,9 @@ bot.on(['message:voice', 'message:audio'], async (ctx) => {
         await ctx.api.editMessageText(
             ctx.chat.id,
             statusMsg.message_id,
-            `🎙️ *Nota de voz:* _"${transcribedText}"_`,
+            `🎙️ *Nota de voz (${durStr}):* _"${transcribedText}"_`,
             { parse_mode: 'Markdown' }
         );
-
-        // Notificar que se está analizando
-        await ctx.replyWithChatAction('typing');
 
         // Procesar en la conversación
         logInfo(`[Chat ${ctx.chat.id}] Procesando orden para: "${transcribedText}"`);
@@ -110,13 +118,15 @@ bot.on(['message:voice', 'message:audio'], async (ctx) => {
         logError(`[Chat ${ctx.chat.id}] Error procesando audio:`, error);
         
         let userMsg = `❌ Error procesando la nota de voz: ${error.message}`;
-        if (error.message && error.message.toLowerCase().includes('timeout') || error.message.toLowerCase().includes('excedió el tiempo')) {
+        if (error.message && (error.message.toLowerCase().includes('timeout') || error.message.toLowerCase().includes('excedió el tiempo'))) {
             userMsg = `⚠️ *Tiempo de espera agotado al procesar el audio*\n\n` +
                       `La descarga desde Telegram o la transcripción tardó más de lo habitual debido a congestión de la red.\n\n` +
                       `👉 Por favor reenvía la nota de voz o, si prefieres, escríbeme el pedido en texto.`;
         }
 
         await ctx.reply(userMsg, { parse_mode: 'Markdown' });
+    } finally {
+        clearInterval(typingInterval);
     }
 });
 
