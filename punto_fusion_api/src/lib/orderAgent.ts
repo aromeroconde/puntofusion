@@ -148,9 +148,13 @@ Reglas semánticas clave:
 1. DISTINCIÓN CRÍTICA DE METALES:
    - "Plata 1000", "plata mil", "plata pura" o "10 gramos de plata 1000" corresponde SIEMPRE al producto: "Plata pura (1000) bolsas de 10 gramos". (NO es Plata 950).
    - "Plata 950" se usa ÚNICAMENTE si el asesor dice explícitamente las palabras "plata 950".
-2. CAFETERÍA: Comidas y bebidas (empanadas, almojábanas, pastelitos, café, té) corresponden al producto: "Cafe La Catalina". Usa la variante correspondiente (ej: "Empanadas colombianas - unidad", "Almojabana - unidad").
+2. CAFETERÍA Y ALIMENTOS:
+   - "Cafe La Catalina": Alimentos preparados y bebidas de cafetería (empanadas colombianas, almojábanas, pastelitos de plátano y yuca, café, té, granola, refrescos, cervezas). Usa la variante exacta correspondiente (ej: "Empanadas colombianas - unidad", "Almojabana - unidad").
+   - "Helados la paletea": Helados, paletas, conos o sándwiches de helado corresponden SIEMPRE y ÚNICAMENTE al producto "Helados la paletea" (NUNCA a Cafe La Catalina).
 3. HERRAMIENTAS: Medidas de brocas corresponden al producto: "Brocas- varias medidas" (ej: variante "0.9mm"). Lijas corresponden a "Lijas - diferentes granos".
-4. ACLARACIÓN: Si el usuario pide un producto que tiene varias variantes y NO especificó cuál (ej: "un helado"), colócalo en needs_clarification. Si estamos esperando variante y el usuario la indica (ej: "el cono sencillo"), identifícala en matched_items.
+4. ACLARACIÓN: Si el usuario pide un producto que tiene varias variantes y NO especificó cuál:
+   - Si pide "un helado", colócalo en needs_clarification con product_title: "Helados la paletea".
+   - Si estamos esperando variante y el usuario la indica (ej: "el cono sencillo" o "1"), identifícala en matched_items.
 5. ÍTEMS PERSONALIZADOS: Si el usuario pide un producto con precio explícito o divisa no registrado en catálogo (ej: "una piedra 75 dólares"), colócalo en custom_items con su precio en colones (tasa estándar ₡520 por dólar si viene en USD).
 6. CANCELACIÓN: Si el usuario dice "cancelar", "cancela", "borrar", "olvídalo", marca is_cancellation: true.
 7. CONFIRMACIÓN: Si estamos esperando confirmación final y el usuario dice "sí", "confirmar", "dale", "guardar", "ok", marca is_confirmation: true.
@@ -535,7 +539,11 @@ export async function processConversationMessage(chatId: number, text: string, a
     // 5. Procesar ítems identificados por la IA contra el catálogo de Shopify
     if (analysis.matched_items && analysis.matched_items.length > 0) {
         for (const mi of analysis.matched_items) {
-            const miProdNorm = (mi.product_title || '').toLowerCase().trim();
+            const rawProd = mi.product_title || (mi as any).product || '';
+            const rawVar = mi.variant_title || (mi as any).variant || '';
+            const miProdNorm = rawProd.toLowerCase().trim();
+            if (!miProdNorm) continue;
+
             let prod = products.find(p => p.title.toLowerCase().trim() === miProdNorm);
             if (!prod) {
                 prod = products.find(p => p.title.toLowerCase().includes(miProdNorm) || miProdNorm.includes(p.title.toLowerCase()));
@@ -543,8 +551,8 @@ export async function processConversationMessage(chatId: number, text: string, a
 
             if (!prod) {
                 session.items.push({
-                    productTitle: mi.product_title,
-                    variantTitle: mi.variant_title || '',
+                    productTitle: rawProd,
+                    variantTitle: rawVar || '',
                     quantity: mi.quantity || 1,
                     price: '0.00',
                     isCustom: true
@@ -552,7 +560,7 @@ export async function processConversationMessage(chatId: number, text: string, a
                 continue;
             }
 
-            const miVarNorm = (mi.variant_title || '').toLowerCase().trim();
+            const miVarNorm = rawVar.toLowerCase().trim();
             let variant = prod.variants.find((v: any) => {
                 const vt = (v.title === 'Default Title' ? 'Único' : v.title).toLowerCase().trim();
                 return vt === miVarNorm;
@@ -562,7 +570,7 @@ export async function processConversationMessage(chatId: number, text: string, a
                 variant = prod.variants[0];
             }
 
-            if (!variant) {
+            if (!variant && miVarNorm) {
                 variant = prod.variants.find((v: any) => v.title.toLowerCase().includes(miVarNorm) || miVarNorm.includes(v.title.toLowerCase()));
             }
 
@@ -571,7 +579,7 @@ export async function processConversationMessage(chatId: number, text: string, a
             }
 
             const officialPrice = variant ? variant.price : (prod.variants?.[0]?.price || '0.00');
-            const officialVariantTitle = variant ? (variant.title === 'Default Title' ? 'Único' : variant.title) : (mi.variant_title || 'Único');
+            const officialVariantTitle = variant ? (variant.title === 'Default Title' ? 'Único' : variant.title) : (rawVar || 'Único');
 
             session.items.push({
                 productTitle: prod.title,
@@ -601,8 +609,14 @@ export async function processConversationMessage(chatId: number, text: string, a
     // 7. Si la IA detectó que un producto requiere aclaración de variante
     if (analysis.needs_clarification && analysis.needs_clarification.length > 0) {
         const nc = analysis.needs_clarification[0]!;
-        const ncProdNorm = (nc.product_title || '').toLowerCase().trim();
-        const prod = products.find(p => p.title.toLowerCase().trim() === ncProdNorm || p.title.toLowerCase().includes(ncProdNorm));
+        const rawNcProd = nc.product_title || (nc as any).product || '';
+        const ncProdNorm = rawNcProd.toLowerCase().trim();
+        let prod = ncProdNorm ? products.find(p => p.title.toLowerCase().trim() === ncProdNorm || p.title.toLowerCase().includes(ncProdNorm) || ncProdNorm.includes(p.title.toLowerCase())) : null;
+
+        // Si no encontró por coincidencia directa y el texto menciona "helad", mapear a "Helados la paletea"
+        if (!prod && ncProdNorm.includes('helad')) {
+            prod = products.find(p => p.title.toLowerCase().includes('helad'));
+        }
 
         if (prod && prod.variants && prod.variants.length > 1) {
             session.pendingVariant = {

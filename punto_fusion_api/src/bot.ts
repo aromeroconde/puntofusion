@@ -49,6 +49,7 @@ bot.on('message:text', async (ctx) => {
         const username = ctx.from?.username || ctx.from?.first_name || 'Asesor';
         logInfo(`[Chat ${ctx.chat.id}] Texto recibido de @${username}: "${text}"`);
         const response = await processConversationMessage(ctx.chat.id, text, username);
+        logInfo(`[Chat ${ctx.chat.id}] Bot responde a @${username}:\n${response}`);
         await ctx.reply(response, { parse_mode: 'Markdown' });
     } catch (error: any) {
         logError(`[Chat ${ctx.chat.id}] Error procesando mensaje de texto:`, error);
@@ -112,6 +113,7 @@ bot.on(['message:voice', 'message:audio'], async (ctx) => {
         // Procesar en la conversación
         logInfo(`[Chat ${ctx.chat.id}] Procesando orden para: "${transcribedText}"`);
         const response = await processConversationMessage(ctx.chat.id, transcribedText, username);
+        logInfo(`[Chat ${ctx.chat.id}] Bot responde a @${username}:\n${response}`);
         await ctx.reply(response, { parse_mode: 'Markdown' });
 
     } catch (error: any) {
