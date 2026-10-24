@@ -159,6 +159,10 @@ Reglas semánticas clave:
 6. CANCELACIÓN: Si el usuario dice "cancelar", "cancela", "borrar", "olvídalo", marca is_cancellation: true.
 7. CONFIRMACIÓN: Si estamos esperando confirmación final y el usuario dice "sí", "confirmar", "dale", "guardar", "ok", marca is_confirmation: true.
 8. Ignora muletillas de transcripción como "gracias por ver el video".
+9. REGLA ANTI-DUPLICADOS CRÍTICA:
+   - En matched_items y custom_items incluye ÚNICAMENTE productos NUEVOS pedidos expresamente en el "Mensaje nuevo del asesor".
+   - NUNCA repitas productos que ya figuran en "Ítems ya en el pedido".
+   - Si el mensaje nuevo del asesor es solo un nombre de persona (ej: "Liliana"), una aclaración de cliente, o no menciona productos nuevos, devuelve matched_items: [] y custom_items: [].
 
 Devuelve ÚNICAMENTE un JSON con esta estructura exacta:
 {
@@ -359,6 +363,49 @@ export async function processConversationMessage(chatId: number, text: string, a
                     isExisting: true,
                     ordersCount: matchingCand.ordersCount
                 };
+            } else if (text.trim().length >= 2) {
+                // El usuario está escribiendo o corrigiendo directamente el nombre del cliente (ej: "Liliana")
+                const searchRes = await searchShopifyCustomersSmart(text.trim());
+                if (searchRes.exactMatch) {
+                    chosenCustomer = {
+                        id: searchRes.exactMatch.id,
+                        name: searchRes.exactMatch.fullName,
+                        phone: searchRes.exactMatch.phone,
+                        isExisting: true,
+                        ordersCount: searchRes.exactMatch.ordersCount
+                    };
+                } else {
+                    session.pendingCustomer = {
+                        originalQuery: text.trim(),
+                        candidates: searchRes.candidates
+                    };
+
+                    let msg = '';
+                    if (session.items.length > 0) {
+                        msg += `✅ Productos listos:\n`;
+                        for (const it of session.items) {
+                            const vDisplay = it.variantTitle && it.variantTitle !== 'Único' ? ` (${it.variantTitle})` : '';
+                            msg += `• ${it.quantity}x *${it.productTitle}*${vDisplay}\n`;
+                        }
+                        msg += `\n`;
+                    }
+
+                    if (searchRes.candidates.length > 0) {
+                        msg += `👤 Para el cliente *"${text.trim()}"*, encontré estas opciones en el sistema:\n\n`;
+                        searchRes.candidates.forEach((c, i) => {
+                            const ordersTxt = c.ordersCount > 0 ? ` _(Cliente habitual - ${c.ordersCount} pedidos)_` : '';
+                            msg += `${i + 1}. *${c.fullName}*${ordersTxt}\n`;
+                        });
+                        msg += `${searchRes.candidates.length + 1}. *Es un cliente nuevo* _(Registrar como "${text.trim()}")_\n\n`;
+                        msg += `¿Cuál de ellos es? _(Puedes responder con el número o el nombre)_`;
+                    } else {
+                        msg += `👤 No encontré a ningún cliente registrado como *"${text.trim()}"*.\n\n`;
+                        msg += `1. *Registrar como cliente nuevo*\n`;
+                        msg += `2. *Escribir otro nombre o buscar de nuevo*\n\n`;
+                        msg += `¿Deseas registrarlo como cliente nuevo o cuál es su nombre?`;
+                    }
+                    return msg;
+                }
             }
         }
 
@@ -419,6 +466,46 @@ export async function processConversationMessage(chatId: number, text: string, a
 
             if (!session.customer) {
                 return `✅ Variante agregada: *${vName}*.\n\n👤 ¿A nombre de qué cliente registramos este pedido? *(El cliente es obligatorio)*`;
+            }
+        }
+    }
+
+    // 0d. Corrección directa de cantidad (ej: "solo 1", "solo 1 engaste", "cambiar a 1", "deja solo 1", "solo un")
+    const soloMatch = lowerText.match(/(?:solo|deja(?: solo)?|cambia(?:r)? a)\s+(\d+|un|una)(?:\s+(.+))?/i);
+    if (soloMatch && session.items.length > 0) {
+        const rawNumStr = soloMatch[1]!.toLowerCase();
+        const newQty = (rawNumStr === 'un' || rawNumStr === 'una') ? 1 : parseInt(rawNumStr, 10);
+        const prodHint = soloMatch[2] ? soloMatch[2].toLowerCase().trim() : '';
+
+        if (!isNaN(newQty) && newQty > 0) {
+            let matchedIndex = -1;
+            if (prodHint) {
+                matchedIndex = session.items.findIndex(it => 
+                    it.productTitle.toLowerCase().includes(prodHint) || 
+                    it.variantTitle.toLowerCase().includes(prodHint) ||
+                    prodHint.includes(it.productTitle.toLowerCase())
+                );
+            }
+            if (matchedIndex < 0 && session.items.length === 1) {
+                matchedIndex = 0;
+            }
+
+            if (matchedIndex >= 0) {
+                session.items[matchedIndex]!.quantity = newQty;
+                // Si había duplicados accidentales del mismo producto, eliminarlos
+                const keepTitle = session.items[matchedIndex]!.productTitle;
+                const keepVar = session.items[matchedIndex]!.variantTitle;
+                session.items = session.items.filter((it, idx) => 
+                    idx === matchedIndex || it.productTitle !== keepTitle || it.variantTitle !== keepVar
+                );
+
+                if (session.customer) {
+                    session.pendingConfirmation = true;
+                    const summary = await generateSummaryText(session);
+                    return `✅ Cantidad corregida a *${newQty}*.\n\n` + summary;
+                } else {
+                    return `✅ Cantidad corregida a *${newQty}*.\n\n👤 ¿A nombre de qué cliente registramos este pedido? *(El cliente es obligatorio)*`;
+                }
             }
         }
     }
@@ -544,6 +631,15 @@ export async function processConversationMessage(chatId: number, text: string, a
             const miProdNorm = rawProd.toLowerCase().trim();
             if (!miProdNorm) continue;
 
+            // GUARD ANTI-ECO: Si el producto ya está en el pedido y el mensaje actual del usuario NO menciona este producto, ignorar eco de IA.
+            const existingItem = session.items.find(it => it.productTitle.toLowerCase() === miProdNorm);
+            const userMentionedProd = lowerText.includes(miProdNorm) || 
+                (rawVar && lowerText.includes(rawVar.toLowerCase())) ||
+                miProdNorm.split(/\s+/).some((w: string) => w.length >= 4 && lowerText.includes(w));
+            if (existingItem && !userMentionedProd) {
+                continue;
+            }
+
             let prod = products.find(p => p.title.toLowerCase().trim() === miProdNorm);
             if (!prod) {
                 prod = products.find(p => p.title.toLowerCase().includes(miProdNorm) || miProdNorm.includes(p.title.toLowerCase()));
@@ -596,6 +692,16 @@ export async function processConversationMessage(chatId: number, text: string, a
     // 6. Procesar ítems personalizados identificados por la IA
     if (analysis.custom_items && analysis.custom_items.length > 0) {
         for (const ci of analysis.custom_items) {
+            const ciTitle = (ci.title || 'Ítem personalizado').toLowerCase().trim();
+
+            // GUARD ANTI-ECO: Si ya existe un ítem similar y el mensaje del usuario no menciona el producto, ignorar eco de IA.
+            const existingItem = session.items.find(it => it.productTitle.toLowerCase() === ciTitle);
+            const userMentionedProd = lowerText.includes(ciTitle) ||
+                ciTitle.split(/\s+/).some((w: string) => w.length >= 4 && lowerText.includes(w));
+            if (existingItem && !userMentionedProd) {
+                continue;
+            }
+
             session.items.push({
                 productTitle: ci.title || 'Ítem personalizado',
                 variantTitle: '',

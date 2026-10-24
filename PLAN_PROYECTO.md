@@ -65,6 +65,7 @@ Hito activo: Operación y Soporte
 | T-10 | H3 | Corrección de creación de clientes con un solo nombre en Shopify | Shopify rechaza `customer.last_name` en blanco (422); se asigna placeholder automático y serialización limpia de errores | T-03 | P1 | hecha | Antigravity | 2026-10-20: Probado creando orden con cliente 'Paulín'; orden #3961 creada exitosamente |
 | T-11 | H3 | Aclaración interactiva y búsqueda difusa de clientes en Shopify | Búsqueda difusa por Levenshtein y prefijos en memoria con ranking por compras; menú de opciones numeradas + "Es un cliente nuevo" | T-03, T-04, T-07 | P1 | hecha | Antigravity | 2026-10-20: Probado con "Paulín" -> presenta Pauli Carmiol (91 pedidos), paul jueves (63), Ali Paul (46) y cliente nuevo; selección interactiva OK |
 | T-12 | H3 | Desambiguación semántica de "Helados la paletea" y logging bidireccional | Diferenciación estricta entre Helados la paletea y Cafe La Catalina; fallback por palabra clave y registro de respuestas del bot en `bot.log` | T-07, T-09 | P1 | hecha | Antigravity | 2026-10-20: Probado con "un helado" -> presenta opciones de paletas, conos y sándwich de Helados la paletea |
+| T-13 | H3 | Prevención de duplicados por eco de IA, corrección de clientes y handler "solo 1" | Búsqueda directa si el asesor escribe otro nombre en aclaración de cliente; guardrail anti-eco para ignorar productos no mencionados; handler 0d para "solo 1" | T-07, T-11 | P1 | hecha | Antigravity | 2026-10-24: Probado con secuencia "limiana..." -> "Liliana" -> "1" -> "Solo 1 engaste"; orden se mantiene exactamente en 1 ítem sin duplicar |
 
 ## Bloqueos y riesgos relevantes
 
@@ -95,6 +96,7 @@ Hito activo: Operación y Soporte
 | 2026-10-20 | Corrección error 422 Shopify por cliente con un solo nombre | En pedidos con clientes sin apellido (ej. "Paulín"), Shopify rechazaba la orden con error 422 (customer.last_name can't be blank) | Se asegura apellido por defecto '-' en órdenes/borradores y se formatea el mensaje de error para evitar `[object Object]` | Usuario / Antigravity |
 | 2026-10-20 | Aclaración interactiva de clientes no exactos | En audios transcritos (ej. "paulín") el bot no debe crear clientes a ciegas si existen clientes habituales similares | Se indexa la lista de clientes en memoria y si no hay coincidencia exacta (100%), se despliegan las 3 opciones más probables con sus pedidos + opción de nuevo cliente | Usuario / Antigravity |
 | 2026-10-20 | Separación de Helados la paletea vs Cafe La Catalina | La regla general de cafetería/comidas causaba que "helado" se mapeara erróneamente a Cafe La Catalina | Se separa la regla en el prompt, se añade mapeo defensivo en código y se añade registro de respuestas en bot.log | Usuario / Antigravity |
+| 2026-10-24 | Prevención de duplicación al aclarar cliente o corregir cantidad | Al escribir un nombre como "Liliana", el LLM hacía eco de los ítems existentes y se duplicaban; al decir "Solo 1", la IA volvía a agregar el ítem | Se interceptan correcciones de nombre en step 0b sin tocar ítems; se añade handler 0d para "solo X" y guardrail anti-eco en steps 5 y 6 | Usuario / Antigravity |
 
 ## Próximo paso
 
