@@ -12,6 +12,7 @@ import alegraRouter from './routes/alegra.js';
 import classesRouter from './routes/classes.js';
 import billingRouter from './routes/billing.js';
 import bookingsRouter from './routes/bookings.js';
+import reportsRouter from './routes/reports.js';
 
 import { startBot } from './bot.js';
 
@@ -31,6 +32,7 @@ app.use('/api/alegra', alegraRouter);
 app.use('/api/classes', classesRouter);
 app.use('/api/billing', billingRouter);
 app.use('/api/bookings', bookingsRouter);
+app.use('/api/reports', reportsRouter);
 
 // ─── Health check ───────────────────────────────────────
 app.get('/api/health', (_req, res) => {

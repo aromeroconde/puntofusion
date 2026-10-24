@@ -13,6 +13,11 @@ import {
     MatchedVariant,
     MatchedCustomer
 } from './shopify.js';
+import {
+    recordOrderInSupabase,
+    generateDailyAccountStatement,
+    isDailyReportRequest
+} from './dailyReport.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -312,7 +317,13 @@ async function generateSummaryText(session: ChatSession): Promise<string> {
 export async function processConversationMessage(chatId: number, text: string, advisorUsername: string): Promise<string> {
     const session = getSession(chatId);
 
-    // 0. Cancelación inmediata por texto
+    // 0. Solicitud directa de estado de cuenta o reporte diario
+    if (isDailyReportRequest(text)) {
+        logInfo(`[Chat ${chatId}] Solicitud de estado de cuenta detectada: "${text}"`);
+        return await generateDailyAccountStatement();
+    }
+
+    // 0a. Cancelación inmediata por texto
     const lowerText = text.toLowerCase().trim();
     if (lowerText === 'cancelar' || lowerText === 'cancela' || (lowerText === 'no' && session.pendingConfirmation)) {
         resetSession(chatId);
@@ -550,6 +561,28 @@ export async function processConversationMessage(chatId: number, text: string, a
 
                 const draftNum = draft.name || `#D${draft.id}`;
                 const adminUrl = `https://admin.shopify.com/store/tiendapuntofusion/draft_orders/${draft.id}`;
+
+                // Persistir en Supabase
+                await recordOrderInSupabase({
+                    shopifyOrderId: draft.id,
+                    orderNumber: draftNum,
+                    isDraft: true,
+                    customerName: session.customer.name,
+                    customerPhone: session.customer.phone,
+                    advisorUsername: advisorUsername,
+                    chatId: chatId,
+                    totalPrice: draft.total_price || session.items.reduce((sum, it) => sum + (parseFloat(it.price || '0') * it.quantity), 0),
+                    currency: draft.currency || 'CRC',
+                    items: session.items.map(it => ({
+                        variantId: it.variantId,
+                        title: it.productTitle,
+                        quantity: it.quantity,
+                        price: it.price
+                    })),
+                    source: 'telegram_bot',
+                    note: `Borrador tomado vía Telegram por @${advisorUsername}`
+                });
+
                 resetSession(chatId);
 
                 return `✅ *¡Borrador Creado Exitosamente en Shopify!*\n\n` +
@@ -573,6 +606,28 @@ export async function processConversationMessage(chatId: number, text: string, a
 
                 const orderNum = order.name || order.order_number || order.id;
                 const adminUrl = `https://admin.shopify.com/store/tiendapuntofusion/orders/${order.id}`;
+
+                // Persistir en Supabase
+                await recordOrderInSupabase({
+                    shopifyOrderId: order.id,
+                    orderNumber: String(orderNum),
+                    isDraft: false,
+                    customerName: session.customer.name,
+                    customerPhone: session.customer.phone,
+                    advisorUsername: advisorUsername,
+                    chatId: chatId,
+                    totalPrice: order.total_price || session.items.reduce((sum, it) => sum + (parseFloat(it.price || '0') * it.quantity), 0),
+                    currency: order.currency || 'CRC',
+                    items: session.items.map(it => ({
+                        variantId: it.variantId,
+                        title: it.productTitle,
+                        quantity: it.quantity,
+                        price: it.price
+                    })),
+                    source: 'telegram_bot',
+                    note: `Orden tomada vía Telegram por @${advisorUsername}`
+                });
+
                 resetSession(chatId);
 
                 return `✅ *¡Orden Creada Exitosamente en Shopify!*\n\n` +

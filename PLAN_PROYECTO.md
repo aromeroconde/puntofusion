@@ -1,12 +1,12 @@
 # Plan del proyecto: Punto Fusión - Asistente Telegram & Shopify
 
 Creado: 2026-10-16
-Última actualización: 2026-10-20
-Última revisión: 2026-10-20
+Última actualización: 2026-10-24
+Última revisión: 2026-10-24
 Zona horaria: America/Bogota (UTC-5)
-Base de revisión: Resolución de incidentes de timeout en procesamiento de notas de voz y persistencia de logs.
+Base de revisión: Implementación de tablas en Supabase para pedidos diarios de alumnos y motor de consolidación de estados de cuenta bajo demanda y programado.
 Fuente canónica: PLAN_PROYECTO.md
-Estado del plan: Propuesto / en ejecución inicial
+Estado del plan: Hito H5 completado / En despliegue
 
 ## Norte y alcance
 
@@ -46,8 +46,9 @@ Estado del plan: Propuesto / en ejecución inicial
 | H2 | Conector API Shopify (Catálogo y Creación de Órdenes) | Módulo funcional capaz de consultar productos y crear órdenes confirmadas en Shopify | H1 | hecha | 2026-10-16 |
 | H3 | Bot de Telegram y Flujo de Conversación | Flujo de diálogo en Telegram para recibir texto informal, mostrar borrador y confirmar orden | H2 | hecha | 2026-10-16 |
 | H4 | Pruebas End-to-End con el Asesor | Pedido real de prueba tomado en Telegram y verificado en el panel de pedidos de Shopify | H3 | hecha | 2026-10-16 |
+| H5 | Estados de Cuenta Diarios por Alumno y Persistencia en Supabase | Generación bajo demanda y al cierre diario del estado consolidado de pedidos y montos por alumno, guardado en Supabase | H3, H4 | hecha | 2026-10-24 |
 
-Hito activo: Operación y Soporte
+Hito activo: H5 (Estados de Cuenta Diarios por Alumno y Persistencia en Supabase)
 
 ## Trabajo comprometido
 
@@ -66,6 +67,9 @@ Hito activo: Operación y Soporte
 | T-11 | H3 | Aclaración interactiva y búsqueda difusa de clientes en Shopify | Búsqueda difusa por Levenshtein y prefijos en memoria con ranking por compras; menú de opciones numeradas + "Es un cliente nuevo" | T-03, T-04, T-07 | P1 | hecha | Antigravity | 2026-10-20: Probado con "Paulín" -> presenta Pauli Carmiol (91 pedidos), paul jueves (63), Ali Paul (46) y cliente nuevo; selección interactiva OK |
 | T-12 | H3 | Desambiguación semántica de "Helados la paletea" y logging bidireccional | Diferenciación estricta entre Helados la paletea y Cafe La Catalina; fallback por palabra clave y registro de respuestas del bot en `bot.log` | T-07, T-09 | P1 | hecha | Antigravity | 2026-10-20: Probado con "un helado" -> presenta opciones de paletas, conos y sándwich de Helados la paletea |
 | T-13 | H3 | Prevención de duplicados por eco de IA, corrección de clientes y handler "solo 1" | Búsqueda directa si el asesor escribe otro nombre en aclaración de cliente; guardrail anti-eco para ignorar productos no mencionados; handler 0d para "solo 1" | T-07, T-11 | P1 | hecha | Antigravity | 2026-10-24: Probado con secuencia "limiana..." -> "Liliana" -> "1" -> "Solo 1 engaste"; orden se mantiene exactamente en 1 ítem sin duplicar |
+| T-14 | H5 | Tablas en Supabase para persistencia de pedidos diarios de alumnos | Tabla `pf_daily_orders` y `pf_daily_order_items` en Supabase; registro automático al confirmar orden en Telegram | H2, H3 | P1 | hecha | Antigravity | 2026-10-24: Tablas DDL aplicadas en supabase_db, Prisma schema sincronizado, queries y sync probados OK |
+| T-15 | H5 | Motor de consolidación de estados de cuenta por alumno (Día en curso) | Función que agrupa órdenes y productos por alumno, calcula subtotales, totales por alumno y gran total del día | T-14 | P1 | hecha | Antigravity | 2026-10-24: dailyReport.ts probado con órdenes reales de hoy; consolida montos por alumno y gran total CRC (₡69.675) |
+| T-16 | H5 | Activación conversacional y programada del estado de cuenta | Detección de intenciones como "dame el valor a pagar por cada alumno" o `/reporte`, más cron automático al cierre del día | T-15 | P1 | hecha | Antigravity | 2026-10-24: Interceptor en orderAgent.ts, comandos Telegram (/reporte, /cierre) y scheduler a las 18:30 CR en bot.ts probados OK |
 
 ## Bloqueos y riesgos relevantes
 
@@ -97,8 +101,9 @@ Hito activo: Operación y Soporte
 | 2026-10-20 | Aclaración interactiva de clientes no exactos | En audios transcritos (ej. "paulín") el bot no debe crear clientes a ciegas si existen clientes habituales similares | Se indexa la lista de clientes en memoria y si no hay coincidencia exacta (100%), se despliegan las 3 opciones más probables con sus pedidos + opción de nuevo cliente | Usuario / Antigravity |
 | 2026-10-20 | Separación de Helados la paletea vs Cafe La Catalina | La regla general de cafetería/comidas causaba que "helado" se mapeara erróneamente a Cafe La Catalina | Se separa la regla en el prompt, se añade mapeo defensivo en código y se añade registro de respuestas en bot.log | Usuario / Antigravity |
 | 2026-10-24 | Prevención de duplicación al aclarar cliente o corregir cantidad | Al escribir un nombre como "Liliana", el LLM hacía eco de los ítems existentes y se duplicaban; al decir "Solo 1", la IA volvía a agregar el ítem | Se interceptan correcciones de nombre en step 0b sin tocar ítems; se añade handler 0d para "solo X" y guardrail anti-eco en steps 5 y 6 | Usuario / Antigravity |
+| 2026-10-24 | Estados de cuenta diarios por alumno en Supabase (H5) | Se requería un consolidado de pedidos y montos a pagar por cada alumno al cierre del día y bajo demanda | Creación de tablas `pf_daily_orders` y `pf_daily_order_items` en Supabase, sincronización automática con Shopify, detección NLP/comandos (/reporte) y cron diario a las 18:30 CR | Usuario / Antigravity |
 
 ## Próximo paso
 
-Commit, push a GitHub y despliegue en el VPS (`puntofusion_punto-fusion-api`). Monitoreo en `bot.log`.
+Commit, push a GitHub y despliegue en producción en el VPS (`puntofusion_punto-fusion-api`). Monitoreo en vivo.
 

@@ -4,6 +4,8 @@ import { fileURLToPath } from 'url';
 import path from 'path';
 import { processConversationMessage, resetSession } from './lib/orderAgent.js';
 import { transcribeTelegramVoice } from './lib/transcriber.js';
+import { generateDailyAccountStatement } from './lib/dailyReport.js';
+import { supabase } from './supabase.js';
 import { logInfo, logError } from './lib/logger.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -22,6 +24,29 @@ export const bot = new Bot(TELEGRAM_BOT_TOKEN);
 
 bot.catch((err) => {
     logError('🔴 Error capturado en bot de Telegram:', err.error || err);
+});
+
+// Registro en memoria de chats activos para el cierre programado
+export const activeChatIds = new Set<number>();
+
+bot.use(async (ctx, next) => {
+    if (ctx.chat?.id) {
+        activeChatIds.add(ctx.chat.id);
+    }
+    await next();
+});
+
+// Comando /reporte, /cierre, /resumen o /estadodecuenta
+bot.command(['reporte', 'resumen', 'cierre', 'estadodecuenta'], async (ctx) => {
+    await ctx.replyWithChatAction('typing');
+    try {
+        logInfo(`[Chat ${ctx.chat.id}] Solicitud de estado de cuenta vía comando /${ctx.message?.text?.split(' ')[0]}`);
+        const statement = await generateDailyAccountStatement();
+        await ctx.reply(statement, { parse_mode: 'Markdown' });
+    } catch (err: any) {
+        logError('Error generando estado de cuenta por comando:', err);
+        await ctx.reply(`❌ Error generando el estado de cuenta: ${err.message}`);
+    }
 });
 
 // Comando /start o /reiniciar
@@ -132,8 +157,68 @@ bot.on(['message:voice', 'message:audio'], async (ctx) => {
     }
 });
 
+let lastReportDateSent = '';
+
+function startDailyReportScheduler() {
+    logInfo('🕒 Programador de cierre de jornada diario iniciado (hora objetivo: 18:30 Costa Rica).');
+    
+    // Verificar cada 60 segundos si es hora del cierre del día (18:30 Costa Rica / 6:30 PM)
+    setInterval(async () => {
+        try {
+            const now = new Date();
+            const dateStrCR = now.toLocaleDateString('en-CA', { timeZone: 'America/Costa_Rica' });
+            const timeParts = now.toLocaleTimeString('en-US', { timeZone: 'America/Costa_Rica', hour12: false }).split(':');
+            const hour = parseInt(timeParts[0] || '0', 10);
+            const minute = parseInt(timeParts[1] || '0', 10);
+
+            // Hora objetivo: 18:30 (6:30 PM Costa Rica)
+            if (hour === 18 && minute === 30 && lastReportDateSent !== dateStrCR) {
+                lastReportDateSent = dateStrCR;
+                logInfo(`⏰ Disparando envío automático del estado de cuenta de cierre (${dateStrCR} 18:30 CR)...`);
+
+                const statement = await generateDailyAccountStatement(dateStrCR);
+                
+                // Destinatarios: chats activos en memoria + últimos de la base de datos
+                const recipientChats = new Set<number>(activeChatIds);
+                
+                const { data: dbChats } = await supabase
+                    .from('pf_daily_orders')
+                    .select('chat_id')
+                    .not('chat_id', 'is', null)
+                    .order('created_at', { ascending: false })
+                    .limit(20);
+
+                if (dbChats) {
+                    for (const r of dbChats) {
+                        const num = Number(r.chat_id);
+                        if (!isNaN(num) && num !== 0) recipientChats.add(num);
+                    }
+                }
+
+                if (process.env['TELEGRAM_REPORT_CHAT_ID']) {
+                    const envChats = process.env['TELEGRAM_REPORT_CHAT_ID'].split(',').map(s => Number(s.trim()));
+                    envChats.forEach(id => { if (!isNaN(id) && id !== 0) recipientChats.add(id); });
+                }
+
+                const finalMsg = `🔔 *CIERRE AUTOMÁTICO DE JORNADA*\n\n` + statement;
+                for (const targetChatId of recipientChats) {
+                    try {
+                        await bot.api.sendMessage(targetChatId, finalMsg, { parse_mode: 'Markdown' });
+                        logInfo(`✅ Estado de cuenta automático enviado al chat ${targetChatId}`);
+                    } catch (sendErr: any) {
+                        logError(`⚠️ No se pudo enviar el reporte automático al chat ${targetChatId}:`, sendErr.message);
+                    }
+                }
+            }
+        } catch (err: any) {
+            logError('❌ Error en scheduler de estado de cuenta:', err);
+        }
+    }, 60000);
+}
+
 export async function startBot() {
     logInfo('🤖 Iniciando bot conversacional de Telegram (@PuntoFusionShopBot)...');
+    startDailyReportScheduler();
     bot.start({
         onStart: (info) => {
             logInfo(`✅ Bot @${info.username} iniciado (100% conversacional, voz y texto, sin botones).`);

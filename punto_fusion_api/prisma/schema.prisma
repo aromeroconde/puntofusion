@@ -357,3 +357,43 @@ model KbChunk {
 
   @@map("pf_kb_chunks")
 }
+
+model DailyOrder {
+  id               String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  shopify_order_id String?
+  order_number     String
+  is_draft         Boolean          @default(false)
+  customer_name    String
+  customer_phone   String?
+  advisor_username String?
+  chat_id          String?
+  total_price      Decimal          @default(0) @db.Decimal(12, 2)
+  currency         String?          @default("CRC") @db.VarChar(10)
+  items            Json             @default("[]")
+  source           String?          @default("telegram_bot")
+  note             String?
+  created_at       DateTime         @default(now()) @db.Timestamptz
+  updated_at       DateTime         @default(now()) @updatedAt @db.Timestamptz
+
+  order_items      DailyOrderItem[]
+
+  @@map("pf_daily_orders")
+}
+
+model DailyOrderItem {
+  id               String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  order_id         String     @db.Uuid
+  shopify_order_id String?
+  customer_name    String
+  variant_id       String?
+  product_title    String
+  quantity         Int        @default(1)
+  unit_price       Decimal    @default(0) @db.Decimal(12, 2)
+  subtotal         Decimal    @default(0) @db.Decimal(12, 2)
+  created_at       DateTime   @default(now()) @db.Timestamptz
+
+  order            DailyOrder @relation(fields: [order_id], references: [id], onDelete: Cascade)
+
+  @@map("pf_daily_order_items")
+}
+
