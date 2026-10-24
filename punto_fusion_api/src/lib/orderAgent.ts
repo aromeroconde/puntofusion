@@ -16,6 +16,8 @@ import {
 import {
     recordOrderInSupabase,
     generateDailyAccountStatement,
+    generateStudentConsumptionStatement,
+    parseStudentConsumptionQuery,
     isDailyReportRequest
 } from './dailyReport.js';
 
@@ -317,13 +319,20 @@ async function generateSummaryText(session: ChatSession): Promise<string> {
 export async function processConversationMessage(chatId: number, text: string, advisorUsername: string): Promise<string> {
     const session = getSession(chatId);
 
-    // 0. Solicitud directa de estado de cuenta o reporte diario
+    // 0. Solicitud directa de consumo de un alumno específico
+    const studentQuery = parseStudentConsumptionQuery(text);
+    if (studentQuery && studentQuery.isStudentQuery) {
+        logInfo(`[Chat ${chatId}] Solicitud de consumo para alumno "${studentQuery.studentName}" (${studentQuery.periodText || 'hoy'})`);
+        return await generateStudentConsumptionStatement(studentQuery.studentName, studentQuery.periodText);
+    }
+
+    // 0a. Solicitud directa de estado de cuenta o reporte general del día
     if (isDailyReportRequest(text)) {
-        logInfo(`[Chat ${chatId}] Solicitud de estado de cuenta detectada: "${text}"`);
+        logInfo(`[Chat ${chatId}] Solicitud de estado de cuenta general detectada: "${text}"`);
         return await generateDailyAccountStatement();
     }
 
-    // 0a. Cancelación inmediata por texto
+    // 0b. Cancelación inmediata por texto
     const lowerText = text.toLowerCase().trim();
     if (lowerText === 'cancelar' || lowerText === 'cancela' || (lowerText === 'no' && session.pendingConfirmation)) {
         resetSession(chatId);

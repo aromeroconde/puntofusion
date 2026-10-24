@@ -381,13 +381,32 @@ export async function searchShopifyCustomersSmart(query: string): Promise<Custom
         } else if (fullNorm.length >= 3 && qNorm.includes(fullNorm)) {
             score = 80;
         } else {
+            let fnMatched = false;
+            let lnMatched = false;
             for (const w of qWords) {
                 if (w.length >= 3) {
-                    if (fnNorm.startsWith(w) || w.startsWith(fnNorm)) score = Math.max(score, 75);
-                    if (lnNorm.startsWith(w) || w.startsWith(lnNorm)) score = Math.max(score, 70);
+                    if (fnNorm.startsWith(w) || w.startsWith(fnNorm)) {
+                        score = Math.max(score, 75);
+                        fnMatched = true;
+                    }
+                    if (lnNorm.startsWith(w) || w.startsWith(lnNorm)) {
+                        score = Math.max(score, 70);
+                        lnMatched = true;
+                    }
                     const distFn = calcCustomerLevenshtein(w, fnNorm);
-                    if (distFn <= 2 && fnNorm.length >= 3) score = Math.max(score, 70 - distFn * 5);
+                    if (distFn <= 2 && fnNorm.length >= 3) {
+                        score = Math.max(score, 70 - distFn * 5);
+                        fnMatched = true;
+                    }
+                    const distLn = calcCustomerLevenshtein(w, lnNorm);
+                    if (distLn <= 2 && lnNorm.length >= 3) {
+                        score = Math.max(score, 70 - distLn * 5);
+                        lnMatched = true;
+                    }
                 }
+            }
+            if (fnMatched && lnMatched && qWords.length >= 2) {
+                score = 95;
             }
         }
 
@@ -398,7 +417,7 @@ export async function searchShopifyCustomersSmart(query: string): Promise<Custom
 
     scored.sort((a, b) => b.score - a.score || b.customer.ordersCount - a.customer.ordersCount);
 
-    if (scored.length > 0 && scored[0]!.score === 100) {
+    if (scored.length > 0 && scored[0]!.score >= 95) {
         return { exactMatch: scored[0]!.customer, candidates: [] };
     }
     if (scored.length === 1 && scored[0]!.score >= 90) {
