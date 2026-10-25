@@ -224,46 +224,26 @@ export interface StudentDailySummary {
 }
 
 /**
- * Genera el estado de cuenta consolidado por alumno para una fecha en específico (por defecto hoy en Costa Rica).
+ * Genera el estado de cuenta consolidado por alumno para un período o fecha en específico (por defecto hoy en Costa Rica).
  */
-export async function generateDailyAccountStatement(targetDateStr?: string): Promise<string> {
-    const todayCR = targetDateStr || new Date().toLocaleDateString('en-CA', { timeZone: 'America/Costa_Rica' });
+export async function generateDailyAccountStatement(periodOrDate?: string): Promise<string> {
+    const range = parseDateRange(periodOrDate);
 
-    // 1. Sincronizar primero para garantizar que nada quede por fuera
-    await syncShopifyOrdersForDate(todayCR);
+    // 1. Sincronizar órdenes para este rango de fechas
+    await syncShopifyOrdersForRange(range.startStr, range.endStr);
 
-    // 2. Consultar todas las órdenes de Supabase para este día
-    // En Costa Rica (UTC-6), el día va de [todayCR 00:00:00-06] a [todayCR 23:59:59.999-06]
-    const startOfDayUTC = new Date(`${todayCR}T00:00:00-06:00`).toISOString();
-    const endOfDayUTC = new Date(`${todayCR}T23:59:59.999-06:00`).toISOString();
-
+    // 2. Consultar todas las órdenes de Supabase para este período
     const { data: orders, error } = await supabase
         .from('pf_daily_orders')
         .select('*')
-        .gte('created_at', startOfDayUTC)
-        .lte('created_at', endOfDayUTC)
+        .gte('created_at', range.startUTC)
+        .lte('created_at', range.endUTC)
         .order('created_at', { ascending: true });
 
     if (error) {
         logError('❌ Error consultando pf_daily_orders en Supabase:', error);
         return `❌ Ocurrió un error al consultar el estado de cuenta en la base de datos: ${error.message}`;
     }
-
-    // Formatear encabezado de fecha
-    const parts = todayCR.split('-').map(Number);
-    const year = parts[0] || new Date().getFullYear();
-    const month = parts[1] || (new Date().getMonth() + 1);
-    const day = parts[2] || new Date().getDate();
-    const dateObj = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
-    const dateOptions: Intl.DateTimeFormatOptions = { 
-        weekday: 'long', 
-        year: 'numeric', 
-        month: 'long', 
-        day: 'numeric',
-        timeZone: 'UTC'
-    };
-    const dateFormatted = dateObj.toLocaleDateString('es-CR', dateOptions);
-    const dateCapitalized = dateFormatted.charAt(0).toUpperCase() + dateFormatted.slice(1);
 
     const nowCR = new Date().toLocaleTimeString('es-CR', { 
         timeZone: 'America/Costa_Rica', 
@@ -273,10 +253,10 @@ export async function generateDailyAccountStatement(targetDateStr?: string): Pro
     });
 
     if (!orders || orders.length === 0) {
-        return `📊 *ESTADO DE CUENTA DIARIO - ALUMNOS*\n` +
-               `📅 *Fecha:* ${dateCapitalized}\n` +
+        return `📊 *ESTADO DE CUENTA - ALUMNOS*\n` +
+               `📅 *Período:* ${range.label}\n` +
                `⏰ *Generado:* ${nowCR} (Costa Rica)\n\n` +
-               `ℹ️ _No se registran compras ni pedidos de alumnos para el día de hoy._`;
+               `ℹ️ _No se registran compras ni pedidos de alumnos para este período._`;
     }
 
     // 3. Consolidar por alumno
@@ -332,8 +312,8 @@ export async function generateDailyAccountStatement(targetDateStr?: string): Pro
     }
 
     // 4. Armar el reporte en Markdown
-    let report = `📊 *ESTADO DE CUENTA DIARIO - ALUMNOS*\n`;
-    report += `📅 *Fecha:* ${dateCapitalized}\n`;
+    let report = `📊 *ESTADO DE CUENTA - ALUMNOS*\n`;
+    report += `📅 *Período:* ${range.label}\n`;
     report += `⏰ *Hora:* ${nowCR} (Costa Rica)\n`;
     report += `━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
 
@@ -436,21 +416,13 @@ export function parseDateRange(period?: string): DateRangeResult {
     let endStr = todayStr;
     let label = 'Hoy';
 
-    const clean = (period || '').toLowerCase().trim();
+    const clean = (period || '').toLowerCase().replace(/_/g, ' ').trim();
 
     if (clean.includes('ayer')) {
         const yesterday = new Date(nowCR.getTime() - 24 * 60 * 60 * 1000);
         startStr = yesterday.toISOString().split('T')[0]!;
         endStr = startStr;
         label = `Ayer (${startStr})`;
-    } else if (clean.includes('esta semana') || clean === 'semana') {
-        const dayOfWeek = nowCR.getUTCDay(); // 0: dom, 1: lun, ..., 6: sab
-        const diffToMonday = dayOfWeek === 0 ? 6 : (dayOfWeek - 1);
-        const monday = new Date(nowCR.getTime() - diffToMonday * 24 * 60 * 60 * 1000);
-        const sunday = new Date(monday.getTime() + 6 * 24 * 60 * 60 * 1000);
-        startStr = monday.toISOString().split('T')[0]!;
-        endStr = sunday.toISOString().split('T')[0]!;
-        label = `Esta semana (${startStr} al ${endStr})`;
     } else if (clean.includes('semana pasada')) {
         const dayOfWeek = nowCR.getUTCDay();
         const diffToMonday = dayOfWeek === 0 ? 6 : (dayOfWeek - 1);
@@ -459,11 +431,14 @@ export function parseDateRange(period?: string): DateRangeResult {
         startStr = prevMonday.toISOString().split('T')[0]!;
         endStr = prevSunday.toISOString().split('T')[0]!;
         label = `Semana pasada (${startStr} al ${endStr})`;
-    } else if (clean.includes('este mes') || clean === 'mes') {
-        startStr = `${y}-${String(m).padStart(2, '0')}-01`;
-        const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
-        endStr = `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
-        label = `Este mes (${y}-${String(m).padStart(2, '0')})`;
+    } else if (clean.includes('semana')) {
+        const dayOfWeek = nowCR.getUTCDay(); // 0: dom, 1: lun, ..., 6: sab
+        const diffToMonday = dayOfWeek === 0 ? 6 : (dayOfWeek - 1);
+        const monday = new Date(nowCR.getTime() - diffToMonday * 24 * 60 * 60 * 1000);
+        const sunday = new Date(monday.getTime() + 6 * 24 * 60 * 60 * 1000);
+        startStr = monday.toISOString().split('T')[0]!;
+        endStr = sunday.toISOString().split('T')[0]!;
+        label = `Esta semana (${startStr} al ${endStr})`;
     } else if (clean.includes('mes pasado')) {
         const prevMonthDate = new Date(Date.UTC(y, m - 2, 1, 12, 0, 0));
         const prevY = prevMonthDate.getUTCFullYear();
@@ -472,6 +447,11 @@ export function parseDateRange(period?: string): DateRangeResult {
         const lastDay = new Date(Date.UTC(prevY, prevM, 0)).getUTCDate();
         endStr = `${prevY}-${String(prevM).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
         label = `Mes pasado (${prevY}-${String(prevM).padStart(2, '0')})`;
+    } else if (clean.includes('mes')) {
+        startStr = `${y}-${String(m).padStart(2, '0')}-01`;
+        const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+        endStr = `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+        label = `Este mes (${y}-${String(m).padStart(2, '0')})`;
     } else if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) {
         startStr = clean;
         endStr = clean;

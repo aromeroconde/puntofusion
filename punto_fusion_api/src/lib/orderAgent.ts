@@ -120,8 +120,11 @@ export interface AINeedsClarification {
 }
 
 export interface AIOrderAnalysis {
-    is_cancellation: boolean;
-    is_confirmation: boolean;
+    intent?: 'order' | 'general_report' | 'student_report' | 'confirmation' | 'cancellation';
+    student_name?: string | null;
+    period?: string | null;
+    is_cancellation?: boolean;
+    is_confirmation?: boolean;
     is_report_request?: boolean;
     customer_name?: string | null;
     wants_draft?: boolean | null;
@@ -137,8 +140,22 @@ async function analyzeOrderWithAI(
     session: ChatSession,
     catalogText: string
 ): Promise<AIOrderAnalysis | null> {
-    const prompt = `Eres el cerebro conversacional de ventas con Inteligencia Artificial de la tienda "Punto Fusión" (taller/escuela de joyería, herramientas, metales y cafetería).
-Tu misión es interpretar el mensaje del asesor (texto o transcripción de audio) y mapear con total precisión semántica los productos solicitados contra el catálogo real de Shopify.
+    const prompt = `Eres el cerebro conversacional de ventas y operaciones con Inteligencia Artificial de la tienda "Punto Fusión" (taller/escuela de joyería, herramientas, metales y cafetería).
+Tu misión es interpretar semánticamente el mensaje del asesor (texto o transcripción de audio) y clasificar su intención con total precisión:
+
+CLASIFICACIÓN DE INTENCIÓN (intent):
+1. "general_report": Cuando el usuario solicita un reporte general, cierre del día, consolidado, total de ventas, balance, o detalle de compras de todos los clientes/alumnos (ej: "Pásame el detalle x cliente", "Haz cierre del día", "Cómo van las ventas de hoy", "Cuánto se ha vendido hoy", "Dame el consolidado", "Cuentas del día", "Reporte general").
+   - Define "period": el período solicitado si se menciona ("hoy", "ayer", "esta semana", "este mes", etc., por defecto "hoy").
+
+2. "student_report": Cuando el usuario solicita el consumo, compras, saldo, cuenta o detalle de un alumno o cliente específico (ej: "dame el consumo de Caro Madrigal de esta semana", "cuánto debe Liliana", "qué ha pedido Marta hoy", "detalle de pedidos de Juan Manuel", "estado de cuenta de Pepito").
+   - Define "student_name": nombre del alumno extraído del mensaje (ej: "Caro Madrigal", "Liliana").
+   - Define "period": el período solicitado ("hoy", "ayer", "esta semana", "este mes", etc., por defecto "hoy").
+
+3. "cancellation": Cuando el usuario cancela la orden actual ("cancelar", "cancela", "olvídalo", "descartar").
+
+4. "confirmation": Cuando el usuario confirma el pedido pendiente ("sí", "dale", "confirmar", "ok", "guardar").
+
+5. "order": Cuando el usuario está ordenando productos, creando o modificando un pedido (ej: "una cegueta para Pepito", "2 empanadas y un café para Marta").
 
 Catálogo actual de productos y variantes en Shopify:
 ${catalogText}
@@ -152,7 +169,7 @@ Estado actual de la sesión:
 Mensaje nuevo del asesor:
 "${text}"
 
-Reglas semánticas clave:
+Reglas semánticas clave para pedidos ("order"):
 1. DISTINCIÓN CRÍTICA DE METALES:
    - "Plata 1000", "plata mil", "plata pura" o "10 gramos de plata 1000" corresponde SIEMPRE al producto: "Plata pura (1000) bolsas de 10 gramos". (NO es Plata 950).
    - "Plata 950" se usa ÚNICAMENTE si el asesor dice explícitamente las palabras "plata 950".
@@ -164,22 +181,16 @@ Reglas semánticas clave:
    - Si pide "un helado", colócalo en needs_clarification con product_title: "Helados la paletea".
    - Si estamos esperando variante y el usuario la indica (ej: "el cono sencillo" o "1"), identifícala en matched_items.
 5. ÍTEMS PERSONALIZADOS: Si el usuario pide un producto con precio explícito o divisa no registrado en catálogo (ej: "una piedra 75 dólares"), colócalo en custom_items con su precio en colones (tasa estándar ₡520 por dólar si viene en USD).
-6. CANCELACIÓN: Si el usuario dice "cancelar", "cancela", "borrar", "olvídalo", marca is_cancellation: true.
-7. CONFIRMACIÓN: Si estamos esperando confirmación final y el usuario dice "sí", "confirmar", "dale", "guardar", "ok", marca is_confirmation: true.
-8. Ignora muletillas de transcripción como "gracias por ver el video".
-9. REGLA ANTI-DUPLICADOS CRÍTICA:
+6. REGLA ANTI-DUPLICADOS CRÍTICA:
    - En matched_items y custom_items incluye ÚNICAMENTE productos NUEVOS pedidos expresamente en el "Mensaje nuevo del asesor".
    - NUNCA repitas productos que ya figuran en "Ítems ya en el pedido".
    - Si el mensaje nuevo del asesor es solo un nombre de persona (ej: "Liliana"), una aclaración de cliente, o no menciona productos nuevos, devuelve matched_items: [] y custom_items: [].
 
-10. REPORTES O CONSULTAS DE ESTADO:
-   - Si el usuario solicita un reporte, consolidado, cierre, resumen de ventas o "detalle por cliente" / "detalle x cliente", marca is_report_request: true y devuelve matched_items: [] y custom_items: [].
-
 Devuelve ÚNICAMENTE un JSON con esta estructura exacta:
 {
-  "is_cancellation": false,
-  "is_confirmation": false,
-  "is_report_request": false,
+  "intent": "general_report" | "student_report" | "order" | "confirmation" | "cancellation",
+  "student_name": "Nombre de alumno si es student_report o null",
+  "period": "hoy" | "ayer" | "esta_semana" | "este_mes" | null,
   "customer_name": "Nombre de cliente si se menciona o null",
   "wants_draft": true/false/null,
   "matched_items": [
@@ -320,31 +331,18 @@ async function generateSummaryText(session: ChatSession): Promise<string> {
     return msg;
 }
 
-// Orquestador principal de mensajes conversacionales
+// Orquestador principal de mensajes conversacionales (100% IA Semántica)
 export async function processConversationMessage(chatId: number, text: string, advisorUsername: string): Promise<string> {
     const session = getSession(chatId);
 
-    // 0. Solicitud directa de consumo de un alumno específico
-    const studentQuery = parseStudentConsumptionQuery(text);
-    if (studentQuery && studentQuery.isStudentQuery) {
-        logInfo(`[Chat ${chatId}] Solicitud de consumo para alumno "${studentQuery.studentName}" (${studentQuery.periodText || 'hoy'})`);
-        return await generateStudentConsumptionStatement(studentQuery.studentName, studentQuery.periodText);
-    }
-
-    // 0a. Solicitud directa de estado de cuenta o reporte general del día
-    if (isDailyReportRequest(text)) {
-        logInfo(`[Chat ${chatId}] Solicitud de estado de cuenta general detectada: "${text}"`);
-        return await generateDailyAccountStatement();
-    }
-
-    // 0b. Cancelación inmediata por texto
+    // Cancelación inmediata por palabra clave directa
     const lowerText = text.toLowerCase().trim();
     if (lowerText === 'cancelar' || lowerText === 'cancela' || (lowerText === 'no' && session.pendingConfirmation)) {
         resetSession(chatId);
         return '❌ Pedido cancelado. La orden fue descartada. ¿En qué más te puedo ayudar?';
     }
 
-    // 0b. Respuesta directa a aclaración pendiente de cliente
+    // 0b. Respuesta directa a aclaración pendiente de cliente (interacción numérica 1, 2, 3...)
     if (session.pendingCustomer) {
         const cand = session.pendingCustomer.candidates;
         let chosenCustomer: SessionCustomer | null = null;
@@ -545,20 +543,27 @@ export async function processConversationMessage(chatId: number, text: string, a
         return '❓ No pude procesar tu mensaje. Por favor repítemelo.';
     }
 
-    // 1. Manejo de reporte o estado de cuenta detectado por IA
-    if (analysis.is_report_request) {
-        logInfo(`[Chat ${chatId}] Reporte general detectado por IA: "${text}"`);
-        return await generateDailyAccountStatement();
+    // 1. Manejo de reporte general detectado semánticamente por IA
+    if (analysis.intent === 'general_report' || analysis.is_report_request) {
+        logInfo(`[Chat ${chatId}] [AI Intent] Reporte general consolidado (${analysis.period || 'hoy'}): "${text}"`);
+        return await generateDailyAccountStatement(analysis.period || undefined);
     }
 
-    // 1a. Manejo de cancelación desde IA
-    if (analysis.is_cancellation) {
+    // 2. Manejo de reporte individual de alumno detectado por IA
+    if (analysis.intent === 'student_report') {
+        const student = analysis.student_name || '';
+        logInfo(`[Chat ${chatId}] [AI Intent] Consumo de alumno "${student}" (${analysis.period || 'hoy'}): "${text}"`);
+        return await generateStudentConsumptionStatement(student, analysis.period || 'hoy');
+    }
+
+    // 3. Manejo de cancelación desde IA
+    if (analysis.intent === 'cancellation' || analysis.is_cancellation) {
         resetSession(chatId);
         return '❌ Pedido cancelado. La orden fue descartada. ¿En qué más te puedo ayudar?';
     }
 
-    // 2. Manejo de confirmación final
-    if (analysis.is_confirmation && session.pendingConfirmation) {
+    // 4. Manejo de confirmación final
+    if ((analysis.intent === 'confirmation' || analysis.is_confirmation) && session.pendingConfirmation) {
         if (!session.customer) {
             session.pendingConfirmation = false;
             return '⚠️ Falta indicar el cliente. ¿A nombre de quién registramos el pedido?';
@@ -867,11 +872,8 @@ export async function processConversationMessage(chatId: number, text: string, a
             return msg;
         }
 
-        if (session.items.length === 0 && !session.customer) {
-            if (isDailyReportRequest(text)) {
-                logInfo(`[Chat ${chatId}] Redirigiendo a estado de cuenta diario: "${text}"`);
-                return await generateDailyAccountStatement();
-            }
+        if (session.items.length === 0) {
+            return `👋 No detecté productos en tu mensaje. Puedes pedirme productos del catálogo (ej: _"una cegueta para Pepito"_) o consultar consumos (ej: _"detalle por cliente"_ o _"consumo de Marta"_).`;
         }
 
         msg += `👤 ¿A nombre de qué cliente registramos este pedido? *(El cliente es obligatorio)*`;
