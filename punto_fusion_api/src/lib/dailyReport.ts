@@ -365,11 +365,15 @@ export async function generateDailyAccountStatement(targetDateStr?: string): Pro
 }
 
 /**
- * Determina si un mensaje de texto solicita el estado de cuenta diario.
+ * Determina si un mensaje de texto solicita el estado de cuenta diario / reporte consolidado general.
  */
 export function isDailyReportRequest(text: string): boolean {
     if (!text) return false;
-    const clean = text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const clean = text.toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/\bx\b/g, 'por')
+        .trim();
 
     // Comandos directos
     if (clean === '/reporte' || clean === '/resumen' || clean === '/estadodecuenta' || clean === '/cierre') {
@@ -381,16 +385,28 @@ export function isDailyReportRequest(text: string): boolean {
         /estado de cuenta/i,
         /valor a pagar/i,
         /compras de alumnos/i,
-        /consolida el valor/i,
-        /cuanto deben los alumnos/i,
-        /cuanto debe cada alumno/i,
+        /consolida/i,
+        /cuanto deben/i,
+        /cuanto debe cada/i,
         /pedidos del dia/i,
         /ventas de hoy/i,
         /cierre del dia/i,
         /cierre de hoy/i,
+        /cierre/i,
         /cuentas del dia/i,
         /reporte del dia/i,
-        /reporte de hoy/i
+        /reporte de hoy/i,
+        /detalle (por|de|en) (cliente|alumno)/i,
+        /estado (por|de|en) (cliente|alumno)/i,
+        /resumen (por|de|en) (cliente|alumno)/i,
+        /consumo (por|de|en) (cliente|alumno)/i,
+        /compras (por|de|en) (cliente|alumno)/i,
+        /pedidos (por|de|en) (cliente|alumno)/i,
+        /ventas (por|de|en) (cliente|alumno)/i,
+        /por (cliente|alumno)/i,
+        /cada (cliente|alumno)/i,
+        /consolidado/i,
+        /desglose/i
     ];
 
     return patterns.some(p => p.test(clean));
@@ -583,16 +599,25 @@ export interface StudentQueryParsed {
 export function parseStudentConsumptionQuery(text: string): StudentQueryParsed | null {
     if (!text) return null;
     const clean = text.trim();
+    const normalized = clean.toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/\bx\b/g, 'por');
 
-    const regex = /(?:dame |ver |mostrar |cual es )?(?:el |la )?(?:consumo|compras?|pedidos?|gastos?|cuenta|saldo|cuanto debe|cuanto ha pedido|que ha pedido)\s+(?:de\s+|para\s+)?([A-Za-zÁ-ÿ0-9\s]+?)(?:\s+(?:de\s+|en\s+|el\s+|durante\s+)?(hoy|ayer|esta semana|la semana pasada|este mes|el mes pasado|\d{4}-\d{2}-\d{2}))?$/i;
+    // Si es una consulta general de todos los clientes (ej: 'detalle por cliente', 'estado por cliente', etc.)
+    if (/^(pasame |dame |ver |mostrar |cual es )?(el |la )?(detalle|estado|resumen|consumo|ventas|compras|pedidos|cuentas|totales|saldo)?\s*(por|de|en|cada)\s+(cliente|alumno)s?$/i.test(normalized)) {
+        return null;
+    }
+
+    const regex = /(?:dame |ver |mostrar |cual es |pasame )?(?:el |la )?(?:consumo|detalle|estado|compras?|pedidos?|gastos?|cuenta|saldo|cuanto debe|cuanto ha pedido|que ha pedido)\s+(?:de\s+|para\s+|del\s+)?([A-Za-zÁ-ÿ0-9\s]+?)(?:\s+(?:de\s+|en\s+|el\s+|durante\s+)?(hoy|ayer|esta semana|la semana pasada|este mes|el mes pasado|\d{4}-\d{2}-\d{2}))?$/i;
 
     const m = clean.match(regex);
     if (m && m[1]) {
         let name = m[1].trim();
         name = name.replace(/^(de|para|del|el|la)\s+/i, '').replace(/\s+(de|en|el)$/i, '').trim();
         const low = name.toLowerCase();
-        // Evitar falsos positivos como "consumo de alumnos", "consumo del dia", "cierre de hoy"
-        if (name.length >= 2 && !low.includes('alumno') && !low.includes('dia') && !low.includes('hoy') && !low.includes('cierre') && !low.includes('todos')) {
+        // Evitar falsos positivos como "cliente", "alumno", "dia", "hoy", "cierre", "todos"
+        if (name.length >= 2 && !low.includes('alumno') && !low.includes('cliente') && !low.includes('dia') && !low.includes('hoy') && !low.includes('cierre') && !low.includes('todos')) {
             return {
                 isStudentQuery: true,
                 studentName: name,

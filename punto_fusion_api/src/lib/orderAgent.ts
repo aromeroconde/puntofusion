@@ -122,6 +122,7 @@ export interface AINeedsClarification {
 export interface AIOrderAnalysis {
     is_cancellation: boolean;
     is_confirmation: boolean;
+    is_report_request?: boolean;
     customer_name?: string | null;
     wants_draft?: boolean | null;
     matched_items: AIMatchedItem[];
@@ -171,10 +172,14 @@ Reglas semánticas clave:
    - NUNCA repitas productos que ya figuran en "Ítems ya en el pedido".
    - Si el mensaje nuevo del asesor es solo un nombre de persona (ej: "Liliana"), una aclaración de cliente, o no menciona productos nuevos, devuelve matched_items: [] y custom_items: [].
 
+10. REPORTES O CONSULTAS DE ESTADO:
+   - Si el usuario solicita un reporte, consolidado, cierre, resumen de ventas o "detalle por cliente" / "detalle x cliente", marca is_report_request: true y devuelve matched_items: [] y custom_items: [].
+
 Devuelve ÚNICAMENTE un JSON con esta estructura exacta:
 {
   "is_cancellation": false,
   "is_confirmation": false,
+  "is_report_request": false,
   "customer_name": "Nombre de cliente si se menciona o null",
   "wants_draft": true/false/null,
   "matched_items": [
@@ -540,7 +545,13 @@ export async function processConversationMessage(chatId: number, text: string, a
         return '❓ No pude procesar tu mensaje. Por favor repítemelo.';
     }
 
-    // 1. Manejo de cancelación desde IA
+    // 1. Manejo de reporte o estado de cuenta detectado por IA
+    if (analysis.is_report_request) {
+        logInfo(`[Chat ${chatId}] Reporte general detectado por IA: "${text}"`);
+        return await generateDailyAccountStatement();
+    }
+
+    // 1a. Manejo de cancelación desde IA
     if (analysis.is_cancellation) {
         resetSession(chatId);
         return '❌ Pedido cancelado. La orden fue descartada. ¿En qué más te puedo ayudar?';
@@ -854,6 +865,13 @@ export async function processConversationMessage(chatId: number, text: string, a
             msg += `2. *Escribir otro nombre o buscar de nuevo*\n\n`;
             msg += `¿Deseas registrarlo como cliente nuevo o cuál es su nombre?`;
             return msg;
+        }
+
+        if (session.items.length === 0 && !session.customer) {
+            if (isDailyReportRequest(text)) {
+                logInfo(`[Chat ${chatId}] Redirigiendo a estado de cuenta diario: "${text}"`);
+                return await generateDailyAccountStatement();
+            }
         }
 
         msg += `👤 ¿A nombre de qué cliente registramos este pedido? *(El cliente es obligatorio)*`;
