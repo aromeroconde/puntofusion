@@ -1,4 +1,4 @@
-import { Bot } from 'grammy';
+import { Bot, Context } from 'grammy';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import path from 'path';
@@ -25,16 +25,80 @@ bot.catch((err) => {
     logError('🔴 Error capturado en bot de Telegram:', err.error || err);
 });
 
+/**
+ * Envía respuestas a Telegram asegurando:
+ * 1. Chunking inteligente si el mensaje excede el límite de 4096 caracteres de Telegram.
+ * 2. Fallback a texto plano si falla el parseo de Markdown (evita 400 Bad Request).
+ */
+export async function replySafely(ctx: Context, fullText: string): Promise<void> {
+    const MAX_CHUNK_LENGTH = 3800; // Margen de seguridad sobre el límite de 4096
+
+    if (!fullText) return;
+
+    if (fullText.length <= MAX_CHUNK_LENGTH) {
+        try {
+            await ctx.reply(fullText, { parse_mode: 'Markdown' });
+            return;
+        } catch (err: any) {
+            logError('Error enviando con parse_mode Markdown, reintentando sin formato:', err);
+            await ctx.reply(fullText);
+            return;
+        }
+    }
+
+    // Dividir en bloques respetando saltos de párrafo/alumnos
+    const chunks: string[] = [];
+    const paragraphs = fullText.split('\n\n');
+    let currentChunk = '';
+
+    for (const para of paragraphs) {
+        if ((currentChunk + '\n\n' + para).length > MAX_CHUNK_LENGTH) {
+            if (currentChunk.trim().length > 0) {
+                chunks.push(currentChunk.trim());
+                currentChunk = '';
+            }
+            if (para.length > MAX_CHUNK_LENGTH) {
+                const lines = para.split('\n');
+                for (const line of lines) {
+                    if ((currentChunk + '\n' + line).length > MAX_CHUNK_LENGTH) {
+                        if (currentChunk.trim().length > 0) {
+                            chunks.push(currentChunk.trim());
+                            currentChunk = '';
+                        }
+                    }
+                    currentChunk = currentChunk ? `${currentChunk}\n${line}` : line;
+                }
+            } else {
+                currentChunk = para;
+            }
+        } else {
+            currentChunk = currentChunk ? `${currentChunk}\n\n${para}` : para;
+        }
+    }
+
+    if (currentChunk.trim().length > 0) {
+        chunks.push(currentChunk.trim());
+    }
+
+    for (const chunk of chunks) {
+        try {
+            await ctx.reply(chunk, { parse_mode: 'Markdown' });
+        } catch {
+            await ctx.reply(chunk);
+        }
+    }
+}
+
 // Comando /reporte, /cierre, /resumen o /estadodecuenta
 bot.command(['reporte', 'resumen', 'cierre', 'estadodecuenta'], async (ctx) => {
     await ctx.replyWithChatAction('typing');
     try {
         logInfo(`[Chat ${ctx.chat.id}] Solicitud de estado de cuenta vía comando /${ctx.message?.text?.split(' ')[0]}`);
         const statement = await generateDailyAccountStatement();
-        await ctx.reply(statement, { parse_mode: 'Markdown' });
+        await replySafely(ctx, statement);
     } catch (err: any) {
         logError('Error generando estado de cuenta por comando:', err);
-        await ctx.reply(`❌ Error generando el estado de cuenta: ${err.message}`);
+        await replySafely(ctx, `❌ Error generando el estado de cuenta: ${err.message}`);
     }
 });
 
@@ -64,10 +128,10 @@ bot.on('message:text', async (ctx) => {
         logInfo(`[Chat ${ctx.chat.id}] Texto recibido de @${username}: "${text}"`);
         const response = await processConversationMessage(ctx.chat.id, text, username);
         logInfo(`[Chat ${ctx.chat.id}] Bot responde a @${username}:\n${response}`);
-        await ctx.reply(response, { parse_mode: 'Markdown' });
+        await replySafely(ctx, response);
     } catch (error: any) {
         logError(`[Chat ${ctx.chat.id}] Error procesando mensaje de texto:`, error);
-        await ctx.reply(`❌ Ocurrió un error al procesar tu solicitud: ${error.message}`);
+        await replySafely(ctx, `❌ Ocurrió un error al procesar tu solicitud: ${error.message}`);
     }
 });
 
@@ -128,7 +192,7 @@ bot.on(['message:voice', 'message:audio'], async (ctx) => {
         logInfo(`[Chat ${ctx.chat.id}] Procesando orden para: "${transcribedText}"`);
         const response = await processConversationMessage(ctx.chat.id, transcribedText, username);
         logInfo(`[Chat ${ctx.chat.id}] Bot responde a @${username}:\n${response}`);
-        await ctx.reply(response, { parse_mode: 'Markdown' });
+        await replySafely(ctx, response);
 
     } catch (error: any) {
         logError(`[Chat ${ctx.chat.id}] Error procesando audio:`, error);
@@ -140,7 +204,7 @@ bot.on(['message:voice', 'message:audio'], async (ctx) => {
                       `👉 Por favor reenvía la nota de voz o, si prefieres, escríbeme el pedido en texto.`;
         }
 
-        await ctx.reply(userMsg, { parse_mode: 'Markdown' });
+        await replySafely(ctx, userMsg);
     } finally {
         clearInterval(typingInterval);
     }

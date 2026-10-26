@@ -65,6 +65,8 @@ export interface ChatSession {
     pendingVariant?: PendingVariantClarification | null;
     pendingCustomer?: PendingCustomerClarification | null;
     pendingConfirmation: boolean;
+    lastReportPeriod?: string;
+    lastReportStudent?: string;
     lastUpdate: number;
 }
 
@@ -147,9 +149,9 @@ CLASIFICACIÓN DE INTENCIÓN (intent):
 1. "general_report": Cuando el usuario solicita un reporte general, cierre del día, consolidado, total de ventas, balance, o detalle de compras de todos los clientes/alumnos (ej: "Pásame el detalle x cliente", "Haz cierre del día", "Cómo van las ventas de hoy", "Cuánto se ha vendido hoy", "Dame el consolidado", "Cuentas del día", "Reporte general").
    - Define "period": el período solicitado si se menciona ("hoy", "ayer", "esta semana", "este mes", etc., por defecto "hoy").
 
-2. "student_report": Cuando el usuario solicita el consumo, compras, saldo, cuenta o detalle de un alumno o cliente específico (ej: "dame el consumo de Caro Madrigal de esta semana", "cuánto debe Liliana", "qué ha pedido Marta hoy", "detalle de pedidos de Juan Manuel", "estado de cuenta de Pepito").
-   - Define "student_name": nombre del alumno extraído del mensaje (ej: "Caro Madrigal", "Liliana").
-   - Define "period": el período solicitado ("hoy", "ayer", "esta semana", "este mes", etc., por defecto "hoy").
+2. "student_report": Cuando el usuario solicita el consumo, compras, saldo, cuenta o detalle de un alumno o cliente específico (ej: "dame el consumo de Caro Madrigal de esta semana", "cuánto debe Liliana", "qué ha pedido Marta hoy", "detalle de pedidos de Juan Manuel", "estado de cuenta de Pepito", "dame el mismo detalle para Marta").
+   - Define "student_name": nombre del alumno extraído del mensaje (ej: "Caro Madrigal", "Liliana", "Marta").
+   - Define "period": el período solicitado ("hoy", "ayer", "esta semana", "este mes", etc.). Si el usuario dice "el mismo detalle", "igual para", o no especifica un período, asigna como período el último consultado: "${session.lastReportPeriod || "hoy"}".
 
 3. "cancellation": Cuando el usuario cancela la orden actual ("cancelar", "cancela", "olvídalo", "descartar").
 
@@ -165,6 +167,7 @@ Estado actual de la sesión:
 - Ítems ya en el pedido: ${JSON.stringify(session.items)}
 - Esperando aclaración de variante: ${session.pendingVariant ? JSON.stringify(session.pendingVariant) : "NO"}
 - Esperando confirmación final: ${session.pendingConfirmation ? "SÍ" : "NO"}
+- Último período consultado en reportes: ${session.lastReportPeriod || "hoy"}
 
 Mensaje nuevo del asesor:
 "${text}"
@@ -545,15 +548,28 @@ export async function processConversationMessage(chatId: number, text: string, a
 
     // 1. Manejo de reporte general detectado semánticamente por IA
     if (analysis.intent === 'general_report' || analysis.is_report_request) {
-        logInfo(`[Chat ${chatId}] [AI Intent] Reporte general consolidado (${analysis.period || 'hoy'}): "${text}"`);
-        return await generateDailyAccountStatement(analysis.period || undefined);
+        const period = analysis.period || 'hoy';
+        session.lastReportPeriod = period;
+        logInfo(`[Chat ${chatId}] [AI Intent] Reporte general consolidado (${period}): "${text}"`);
+        return await generateDailyAccountStatement(period);
     }
 
     // 2. Manejo de reporte individual de alumno detectado por IA
     if (analysis.intent === 'student_report') {
-        const student = analysis.student_name || '';
-        logInfo(`[Chat ${chatId}] [AI Intent] Consumo de alumno "${student}" (${analysis.period || 'hoy'}): "${text}"`);
-        return await generateStudentConsumptionStatement(student, analysis.period || 'hoy');
+        const student = analysis.student_name || session.lastReportStudent || '';
+        let period = analysis.period || 'hoy';
+        const lower = text.toLowerCase();
+        if ((lower.includes('mismo') || lower.includes('igual') || lower.includes('tambien') || lower.includes('también')) && session.lastReportPeriod) {
+            period = session.lastReportPeriod;
+        } else if (period !== 'hoy') {
+            session.lastReportPeriod = period;
+        } else if (session.lastReportPeriod && period === 'hoy' && !lower.includes('hoy')) {
+            period = session.lastReportPeriod;
+        }
+
+        session.lastReportStudent = student;
+        logInfo(`[Chat ${chatId}] [AI Intent] Consumo de alumno "${student}" (${period}): "${text}"`);
+        return await generateStudentConsumptionStatement(student, period);
     }
 
     // 3. Manejo de cancelación desde IA

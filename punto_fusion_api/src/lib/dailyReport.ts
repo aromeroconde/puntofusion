@@ -337,7 +337,8 @@ export async function generateDailyAccountStatement(periodOrDate?: string): Prom
     }
 
     report += `━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
-    report += `💰 *GRAN TOTAL DEL DÍA:* *${formatCRC(grandTotal)}*\n`;
+    const totalHeader = range.label.toLowerCase() === 'hoy' ? 'GRAN TOTAL DEL DÍA' : `GRAN TOTAL (${range.label.toUpperCase()})`;
+    report += `💰 *${totalHeader}:* *${formatCRC(grandTotal)}*\n`;
     report += `👥 *Total Alumnos:* ${sortedStudents.length}\n`;
     report += `📦 *Total Pedidos:* ${orders.length}\n`;
 
@@ -452,10 +453,28 @@ export function parseDateRange(period?: string): DateRangeResult {
         const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
         endStr = `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
         label = `Este mes (${y}-${String(m).padStart(2, '0')})`;
-    } else if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) {
-        startStr = clean;
-        endStr = clean;
-        label = clean;
+    } else {
+        // Soporte para nombres de meses específicos (ej: "octubre", "septiembre")
+        const monthsMap: Record<string, number> = {
+            enero: 1, febrero: 2, marzo: 3, abril: 4, mayo: 5, junio: 6,
+            julio: 7, agosto: 8, septiembre: 9, octubre: 10, noviembre: 11, diciembre: 12
+        };
+        let matchedMonth = false;
+        for (const [mName, mNum] of Object.entries(monthsMap)) {
+            if (clean.includes(mName)) {
+                startStr = `${y}-${String(mNum).padStart(2, '0')}-01`;
+                const lastDay = new Date(Date.UTC(y, mNum, 0)).getUTCDate();
+                endStr = `${y}-${String(mNum).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+                label = `${mName.charAt(0).toUpperCase() + mName.slice(1)} ${y}`;
+                matchedMonth = true;
+                break;
+            }
+        }
+        if (!matchedMonth && /^\d{4}-\d{2}-\d{2}$/.test(clean)) {
+            startStr = clean;
+            endStr = clean;
+            label = clean;
+        }
     }
 
     const startUTC = new Date(`${startStr}T00:00:00-06:00`).toISOString();
