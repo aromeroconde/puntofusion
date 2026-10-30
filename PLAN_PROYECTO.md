@@ -1,8 +1,8 @@
 # Plan del proyecto: Punto Fusión - Asistente Telegram & Shopify
 
 Creado: 2026-10-16
-Última actualización: 2026-10-24
-Última revisión: 2026-10-24
+Última actualización: 2026-10-30
+Última revisión: 2026-10-30
 Zona horaria: America/Bogota (UTC-5)
 Base de revisión: Implementación de tablas en Supabase para pedidos diarios de alumnos y motor de consolidación de estados de cuenta bajo demanda y programado.
 Fuente canónica: PLAN_PROYECTO.md
@@ -47,8 +47,10 @@ Estado del plan: Hito H5 completado / En despliegue
 | H3 | Bot de Telegram y Flujo de Conversación | Flujo de diálogo en Telegram para recibir texto informal, mostrar borrador y confirmar orden | H2 | hecha | 2026-10-16 |
 | H4 | Pruebas End-to-End con el Asesor | Pedido real de prueba tomado en Telegram y verificado en el panel de pedidos de Shopify | H3 | hecha | 2026-10-16 |
 | H5 | Estados de Cuenta Diarios por Alumno y Persistencia en Supabase | Generación bajo demanda y al cierre diario del estado consolidado de pedidos y montos por alumno, guardado en Supabase | H3, H4 | hecha | 2026-10-24 |
+| H6 | Definición independiente del proyecto con EGM (sin mirar el código), comparación con lo construido y decisión de corregir o reiniciar | Design doc revisado en `docs/designs/`; matriz de brechas contra el código; decisión documentada (corregir o reiniciar) | - (H5 no lo bloquea) | pendiente | por definir |
 
 Hito activo: H5 (Estados de Cuenta Diarios por Alumno y Persistencia en Supabase)
+Hito aprobado por el usuario el 2026-10-30, sin iniciar: H6 (el usuario lanza cada skill EGM).
 
 ## Trabajo comprometido
 
@@ -73,12 +75,31 @@ Hito activo: H5 (Estados de Cuenta Diarios por Alumno y Persistencia en Supabase
 | T-17 | H5 | Consumo individual por alumno con períodos y rangos de fecha | Consultas como "dame el consumo de Caro Madrigal de esta semana"; por defecto hoy, soporte para ayer, esta semana, semana pasada, mes o fecha; resolución difusa en Supabase y Shopify | T-15, T-16 | P1 | hecha | Antigravity | 2026-10-24: Probado con "Caro Madrigal esta semana" (resolvió carolina madrigal, #3972 ₡6.750) y "Marta Peraza esta semana" (#3964, #3966 ₡63.000) |
 | T-18 | H5 | Arquitectura 100% IA-First para clasificación de intenciones (Cero reglas duras/regexes) | Eliminación de regexes y compuertas rígidas de entrada; `gpt-6-luna` clasifica semánticamente cada mensaje en `intent` (general_report, student_report, order, confirmation, cancellation) extrayendo período y alumno dinámicamente | T-16, T-17 | P1 | hecha | Antigravity | 2026-10-24: Probado con mensajes informales ("Pásame el detalle x cliente", "cuánto debe Liliana", "Haz cierre", etc.); compilado y verificado OK |
 | T-19 | H5 | Chunking seguro en Telegram (>4096 caracteres), meses nominales y memoria de período de reporte | `replySafely` divide automáticamente reportes largos por párrafos/alumnos respetando el límite de Telegram; soporte para nombres de meses (ej. "octubre"); persistencia de período en sesión para consultas secuenciales ("el mismo detalle para...") | T-15, T-18 | P1 | hecha | Antigravity | 2026-10-25: Probado con reporte de 7.200 caracteres (partido en 2 chunks) y parseDateRange('octubre') OK |
+| T-19b | H5 | Interceptor interactivo antes de crear productos personalizados, corrección de búsqueda de metales/gemas y remoción de ítems | Preguntar al usuario antes de crear productos fuera de catálogo; sugerencias difusas de inventario existente; corrección de reglas de hilo 950 y piedras calibradas/esmeraldas; corrección de guardrail anti-eco por variante; soporte para 'quita X' | T-18, T-19 | P1 | hecha | Antigravity | 2026-10-30: Verificado con simulaciones locales de hilo 1mm, piedras 1.5mm + esmeralda 2mm simultáneas, eliminación y confirmación interactiva antes de crear |
+
+### Flujo EGM (H6): definir primero, comparar después, construir con Claude Code
+
+Orden decidido por el usuario el 2026-10-30. Los skills EGM son de invocación manual: los escribe el usuario al inicio de un mensaje (`/egm:egm-brainstorm`, `/egm:egm-draft`, `/egm:egm-review`, `/egm:egm-bootstrap`). Cada fase corre en sesión limpia. Las fases 1 y 2 no leen el código ni este plan, para que la definición no quede sesgada por lo construido. Las prioridades son propuestas.
+
+| ID | Hito | Tarea y entregable | Aceptación | Depende de | Prioridad | Estado | Responsable | Evidencia |
+|---|---|---|---|---|---|---|---|---|
+| T-20 | H6 | Fase 0: fijar producto, reunir insumo del brainstorm y añadir `EGM artifact directory: docs/egm` a `CLAUDE.md` | Producto confirmado por el usuario; `INSUMO_BRAINSTORM.md` y `FUENTES.md` creados; línea añadida en `CLAUDE.md` | - | P1 (propuesta) | hecha | Claude Code / Usuario | 2026-10-30: usuario eligió el chatbot de WhatsApp (corrigió una respuesta previa que decía Telegram); [FUENTES.md](docs/egm/FUENTES.md), [INSUMO_BRAINSTORM.md](docs/egm/INSUMO_BRAINSTORM.md) y línea en `CLAUDE.md` verificados en disco |
+| T-21 | H6 | Fase 1a: `/egm:egm-brainstorm` sobre `docs/egm/INSUMO_BRAINSTORM.md`, sin código | `concepts_brief.md` con objetivo, usuarios, alcance, exclusiones e hipótesis, aprobado por el usuario | T-20 | P1 (propuesta) | pendiente | Usuario / Claude Code | - |
+| T-22 | H6 | Fase 1b: `/egm:egm-draft` | Design doc por secciones en `docs/designs/` más `SITEMAP.md`, aprobado por el usuario | T-21 | P1 (propuesta) | pendiente | Usuario / Claude Code | - |
+| T-23 | H6 | Fase 1c: `/egm:egm-review` | Informe de revisión guardado; hallazgos aceptados o descartados con motivo registrado | T-22 | P1 (propuesta) | pendiente | Usuario / Claude Code | - |
+| T-24 | H6 | Fase 2: `/egm:egm-bootstrap` sobre el código existente y matriz de brechas (requisito vs construido: cumple, parcial, falta, sobra) | READMEs revisados por una persona; matriz con evidencia por requisito; incluye la sync con el Agendador | T-23 | P1 (propuesta) | pendiente | Claude Code / Usuario | - |
+| T-25 | H6 | Fase 3: decisión corregir o reiniciar | Decisión del usuario registrada, apoyada en: % de requisitos centrales cumplidos, reutilización de datos e integraciones (Supabase, Agendador, Shopify) y costo de corregir contra reconstruir | T-24 | P1 (propuesta) | pendiente | Usuario | - |
+| T-26 | H6 | Fase 4: reescribir este plan (hitos de construcción desde el design doc) y actualizar `CLAUDE.md` para que Claude Code sea el ejecutor y planificador, sin depender de Antigravity | Plan y `CLAUDE.md` actualizados tras confirmación explícita del usuario; incluye `/egm:egm-drift-report` semanal (opcional) | T-25 | P2 (propuesta) | pendiente | Claude Code / Usuario | - |
 
 ## Bloqueos y riesgos relevantes
 
 | ID | Tarea o hito | Bloqueo o riesgo | Impacto | Resolución o mitigación | Responsable |
 |---|---|---|---|---|---|
 | R-01 | T-01 | Permisos restringidos en Shopify Admin | No se puede generar token privado | Resuelto: Client credentials grant activo | Antigravity |
+| R-02 | H6 | Discrepancia sin resolver: la sync con el Agendador (`pf_bookings`, `/api/bookings/reconcile`, etc.) no figura en este plan | La comparación podría omitir parte del sistema | Incluirla en T-24 y verificar contra el código | Claude Code |
+| R-03 | H6 | `CLAUDE.md` asigna la arquitectura a Antigravity, pero el usuario decidió construir con Claude Code | Roles contradictorios mientras no se actualice | Actualizar `CLAUDE.md` en T-26, tras confirmación explícita del usuario | Usuario |
+| R-04 | H5 | Despliegue de H5 pendiente (commit, push y deploy) | Puede ser innecesario si T-25 decide reiniciar | Decidir en T-25; mientras tanto no se toca el código | Usuario |
+| R-05 | H6 | Divergencia de producto entre los documentos de WhatsApp y este plan (Telegram/Shopify) | - | Resuelto 2026-10-30: el usuario eligió WhatsApp para esta definición; Telegram/Shopify queda fuera (ya funciona) | Usuario |
 
 ## Backlog de ideas
 
@@ -109,8 +130,12 @@ Hito activo: H5 (Estados de Cuenta Diarios por Alumno y Persistencia en Supabase
 | 2026-10-24 | Consumo individual por alumno con períodos flexibles (T-17) | Asesores necesitan consultar consumos de un alumno en específico ("dame el consumo de Caro Madrigal de esta semana") | Extracción de alumno y período (hoy por defecto, semana, mes, fecha), ranking multi-palabra en Shopify Customers (Caro Madrigal -> carolina madrigal) y sincronización por rango de fechas | Usuario / Antigravity |
 | 2026-10-24 | Eliminación de reglas duras y migración a IA-First para intenciones (T-18) | Las compuertas rígidas de regex (`isDailyReportRequest`, etc.) fallaban ante modismos o abreviaturas ("detalle x cliente") | Se delega al 100% la clasificación de intenciones a `gpt-6-luna`, categorizando semánticamente si el mensaje es reporte general, consumo individual, toma de pedido, confirmación o cancelación | Usuario / Antigravity |
 | 2026-10-25 | Manejo de mensajes largos (>4096 caracteres) en Telegram y contexto de reportes (T-19) | Reportes mensuales o consolidados extensos (ej. 30 alumnos, 68 pedidos en octubre) provocaban error 400 Bad Request en Telegram | Se implementa `replySafely` con chunking por bloques/alumnos, soporte para meses por nombre ("octubre"), y persistencia del período de reporte en sesión | Usuario / Antigravity |
+| 2026-10-30 | H6 aprobado y reordenado: definir con EGM sin leer el código, luego comparar y decidir corregir o reiniciar | El usuario prefiere definir bien el proyecto; puede salir mejor reiniciar que retomar; no necesariamente construir con Antigravity | Se sustituye el orden previo (bootstrap primero). Se añade decisión corregir/reiniciar (T-25). Construcción prevista con el arnés de Claude Code | Usuario |
+| 2026-10-30 | Producto a definir con EGM: chatbot de WhatsApp (Estudio Punto Fusión & Auri Alta Joyería); Telegram/Shopify queda fuera. Corrige la decisión previa del mismo día, que decía Telegram | El usuario aclaró que el producto a definir es el de WhatsApp | T-20 cerrada; el insumo del brainstorm sale del guion de WhatsApp. Este plan (Telegram) describe otro producto, que no se redefine. En T-24 se compara el código con el producto de WhatsApp | Usuario |
+| 2026-10-30 | Confirmación previa antes de crear productos personalizados / fuera de catálogo y corrección de búsqueda (T-19b) | Incidentes en logs donde "hilo 1mm" o "piedras" no eran encontrados o eran creados como custom items sin consultar; guardrail anti-eco bloqueaba variantes adicionales del mismo producto (ej. esmeralda tras piedras 1.5mm) | NUNCA agregar productos personalizados automáticamente: preguntar al usuario con opciones difusas de inventario; corregir reglas de hilo 950 y piedras calibradas/esmeraldas en prompt; comparar variantes en anti-eco; soporte para 'quita X' | Usuario / Antigravity |
 
 ## Próximo paso
 
-Commit, push a GitHub y despliegue en producción en el VPS (`puntofusion_punto-fusion-api`). Monitoreo en vivo.
+1. Commit, push a GitHub y despliegue en producción en el VPS (`puntofusion_punto-fusion-api`). Monitoreo en vivo (H5).
+2. H6: T-20 hecha. Lanzar `/egm:egm-brainstorm` en sesión limpia usando `docs/egm/INSUMO_BRAINSTORM.md` y el guion de WhatsApp (T-21). No tocar el código hasta T-24.
 

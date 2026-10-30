@@ -7,6 +7,8 @@ import {
     getCatalogProducts,
     searchShopifyCustomers,
     searchShopifyCustomersSmart,
+    searchProductsSmart,
+    MatchedProductGroup,
     createShopifyOrder,
     createShopifyDraftOrder,
     checkTodayDuplicates,
@@ -57,6 +59,22 @@ export interface PendingCustomerClarification {
     candidates: MatchedCustomer[];
 }
 
+export interface CustomProductSuggestion {
+    productId: number;
+    productTitle: string;
+    variantId?: number;
+    variantTitle: string;
+    price: string;
+}
+
+export interface PendingCustomProductClarification {
+    title: string;
+    quantity: number;
+    unitPrice: number;
+    originalQuery: string;
+    suggestions: CustomProductSuggestion[];
+}
+
 export interface ChatSession {
     chatId: number;
     customer: SessionCustomer | null;
@@ -64,6 +82,7 @@ export interface ChatSession {
     wantsDraft: boolean;
     pendingVariant?: PendingVariantClarification | null;
     pendingCustomer?: PendingCustomerClarification | null;
+    pendingCustomProduct?: PendingCustomProductClarification | null;
     pendingConfirmation: boolean;
     lastReportPeriod?: string;
     lastReportStudent?: string;
@@ -82,6 +101,7 @@ export function getSession(chatId: number): ChatSession {
             wantsDraft: false,
             pendingVariant: null,
             pendingCustomer: null,
+            pendingCustomProduct: null,
             pendingConfirmation: false,
             lastUpdate: Date.now()
         };
@@ -174,19 +194,29 @@ Mensaje nuevo del asesor:
 
 Reglas semánticas clave para pedidos ("order"):
 1. DISTINCIÓN CRÍTICA DE METALES:
-   - "Plata 1000", "plata mil", "plata pura" o "10 gramos de plata 1000" corresponde SIEMPRE al producto: "Plata pura (1000) bolsas de 10 gramos". (NO es Plata 950).
-   - "Plata 950" se usa ÚNICAMENTE si el asesor dice explícitamente las palabras "plata 950".
-2. CAFETERÍA Y ALIMENTOS:
+   - "Plata 1000", "plata mil", "plata pura" o "bolsas de plata 1000" corresponde SIEMPRE al producto: "Plata pura (1000) bolsas de 10 gramos". (NO es Plata 950).
+   - Medidas de hilo de plata (ej: "hilo 1mm", "hilo de 1 mm", "hilo 0.8mm", "hilo 2mm", "1 gramo de hilo 1mm", "hilo de plata 1 milímetro") corresponden al producto: "Hilo en plata 950 - por gramo" con su variante de medida correspondiente ("0.5mm", "0.8mm", "1mm", "2mm", "3mm", "3.4mm cuadrado"). Solo si piden "hilo delgado" sin medida corresponde a "Hilo en plata delgado - por gramo".
+   - Láminas o chapas de plata con medida o espesor corresponden al producto: "Lamina en plata 950 - por gramo".
+   - Tubos de plata con medida corresponden a: "Tubo en plata 950 - por gramo".
+   - Bisel de plata corresponde a: "Bisel en plata 950 - por gramo".
+   - "Plata 950" sin forma específica corresponde a "Plata 950".
+2. PIEDRAS Y GEMAS:
+   - "Piedras calibradas", "piedra calibrada" o gemas con medida (ej: "4 piedras calibradas de 1.5 milímetros", "esmeralda calibrada 2mm", "esmeralda 2mm", "piedras 2mm") corresponden a "Piedras Calibradas LG".
+   - Si piden "esmeralda 2mm" o "esmeralda calibrada 2mm", la variante exacta en catálogo es "Esmeralda colombiana 2mm". Si piden 2.5mm es "Esmeralda colombiana 2.5mm".
+   - Si piden medidas numéricas (1mm, 1.5mm, 2mm, 2.5mm, 3mm) corresponden a las variantes "1mm", "1.5mm", "2mm", "2.5mm", "3mm".
+3. CAFETERÍA Y ALIMENTOS:
    - "Cafe La Catalina": Alimentos preparados y bebidas de cafetería (empanadas colombianas, almojábanas, pastelitos de plátano y yuca, café, té, granola, refrescos, cervezas). Usa la variante exacta correspondiente (ej: "Empanadas colombianas - unidad", "Almojabana - unidad").
    - "Helados la paletea": Helados, paletas, conos o sándwiches de helado corresponden SIEMPRE y ÚNICAMENTE al producto "Helados la paletea" (NUNCA a Cafe La Catalina).
-3. HERRAMIENTAS: Medidas de brocas corresponden al producto: "Brocas- varias medidas" (ej: variante "0.9mm"). Lijas corresponden a "Lijas - diferentes granos".
-4. ACLARACIÓN: Si el usuario pide un producto que tiene varias variantes y NO especificó cuál:
+4. HERRAMIENTAS: Medidas de brocas corresponden al producto: "Brocas- varias medidas" (ej: variante "0.9mm"). Lijas corresponden a "Lijas - diferentes granos".
+5. ACLARACIÓN: Si el usuario pide un producto que tiene varias variantes y NO especificó cuál:
    - Si pide "un helado", colócalo en needs_clarification con product_title: "Helados la paletea".
    - Si estamos esperando variante y el usuario la indica (ej: "el cono sencillo" o "1"), identifícala en matched_items.
-5. ÍTEMS PERSONALIZADOS: Si el usuario pide un producto con precio explícito o divisa no registrado en catálogo (ej: "una piedra 75 dólares"), colócalo en custom_items con su precio en colones (tasa estándar ₡520 por dólar si viene en USD).
-6. REGLA ANTI-DUPLICADOS CRÍTICA:
+6. PRODUCTOS NO ENCONTRADOS O NUEVOS:
+   - Si un producto NO figura en el catálogo o no estás seguro, colócalo en not_found.
+   - Solo incluye en custom_items si el usuario pide explícitamente un ítem personalizado con precio o divisa específica (ej: "facturar 472 dólares" o "piedra de 75 dólares").
+7. REGLA ANTI-DUPLICADOS CRÍTICA:
    - En matched_items y custom_items incluye ÚNICAMENTE productos NUEVOS pedidos expresamente en el "Mensaje nuevo del asesor".
-   - NUNCA repitas productos que ya figuran en "Ítems ya en el pedido".
+   - NUNCA repitas productos que ya figuran en "Ítems ya en el pedido" con la misma variante o descripción.
    - Si el mensaje nuevo del asesor es solo un nombre de persona (ej: "Liliana"), una aclaración de cliente, o no menciona productos nuevos, devuelve matched_items: [] y custom_items: [].
 
 Devuelve ÚNICAMENTE un JSON con esta estructura exacta:
@@ -334,15 +364,292 @@ async function generateSummaryText(session: ChatSession): Promise<string> {
     return msg;
 }
 
+/**
+ * Prepara la pregunta interactiva antes de crear un producto nuevo / personalizado en Shopify.
+ * Si existen productos o variantes similares en el catálogo oficial, los presenta numerados.
+ */
+async function prepareCustomProductQuestion(
+    title: string,
+    quantity: number,
+    unitPrice: number,
+    originalText: string,
+    session: ChatSession
+): Promise<string> {
+    const searchGroups = await searchProductsSmart(title);
+    const suggestions: CustomProductSuggestion[] = [];
+
+    for (const g of searchGroups.slice(0, 3)) {
+        if (g.score >= 35) {
+            if (g.selectedVariant) {
+                suggestions.push({
+                    productId: g.productId,
+                    productTitle: g.title,
+                    variantId: g.selectedVariant.variantId,
+                    variantTitle: g.selectedVariant.title,
+                    price: g.selectedVariant.price
+                });
+            } else if (g.variants && g.variants.length > 0) {
+                for (const v of g.variants.slice(0, 2)) {
+                    suggestions.push({
+                        productId: g.productId,
+                        productTitle: g.title,
+                        variantId: v.variantId,
+                        variantTitle: v.title,
+                        price: v.price
+                    });
+                }
+            }
+        }
+    }
+
+    session.pendingCustomProduct = {
+        title,
+        quantity,
+        unitPrice,
+        originalQuery: originalText,
+        suggestions
+    };
+
+    let msg = '';
+    if (session.items.length > 0) {
+        msg += `✅ Productos listos en el pedido:\n`;
+        for (const it of session.items) {
+            const vDisplay = it.variantTitle && it.variantTitle !== 'Único' ? ` (${it.variantTitle})` : '';
+            msg += `• ${it.quantity}x *${it.productTitle}*${vDisplay}\n`;
+        }
+        msg += `\n`;
+    }
+
+    if (suggestions.length > 0) {
+        msg += `⚠️ No encontré *"${title}"* exactamente con ese nombre en el inventario.\n\n`;
+        msg += `Encontré estas opciones que sí existen en el catálogo:\n`;
+        suggestions.forEach((s, idx) => {
+            const priceFormatted = parseFloat(s.price).toLocaleString('es-CR');
+            msg += `${idx + 1}. *${s.productTitle}* _(${s.variantTitle})_ — ₡${priceFormatted}\n`;
+        });
+        const createIdx = suggestions.length + 1;
+        const priceTxt = unitPrice > 0 ? ` (₡${unitPrice.toLocaleString('es-CR')})` : '';
+        msg += `${createIdx}. *Crear como producto nuevo / personalizado*${priceTxt}\n\n`;
+        msg += `¿Deseas seleccionar una opción del catálogo o crearlo como producto nuevo?\n`;
+        msg += `_(Si el producto sí existe con otro nombre, dime cómo aparece para buscarlo)_`;
+    } else {
+        const priceTxt = unitPrice > 0 ? ` (₡${unitPrice.toLocaleString('es-CR')})` : '';
+        msg += `⚠️ El producto *"${title}"* no aparece en el catálogo de Shopify.\n\n`;
+        msg += `1. *El producto sí existe* (dime cómo aparece registrado en el inventario para buscarlo)\n`;
+        msg += `2. *Crear como producto nuevo / personalizado*${priceTxt}\n\n`;
+        msg += `¿Deseas buscarlo de nuevo o crearlo como producto nuevo?`;
+    }
+
+    return msg;
+}
+
 // Orquestador principal de mensajes conversacionales (100% IA Semántica)
 export async function processConversationMessage(chatId: number, text: string, advisorUsername: string): Promise<string> {
     const session = getSession(chatId);
 
     // Cancelación inmediata por palabra clave directa
     const lowerText = text.toLowerCase().trim();
-    if (lowerText === 'cancelar' || lowerText === 'cancela' || (lowerText === 'no' && session.pendingConfirmation)) {
+    if (lowerText === 'cancelar' || lowerText === 'cancela' || (lowerText === 'no' && session.pendingConfirmation && !session.pendingCustomer && !session.pendingCustomProduct)) {
         resetSession(chatId);
         return '❌ Pedido cancelado. La orden fue descartada. ¿En qué más te puedo ayudar?';
+    }
+
+    // 0a. Eliminación directa de ítems ("quita X", "elimina X", "borra X")
+    const quitaMatch = lowerText.match(/^(?:quita|quitar|elimina|eliminar|borra|borrar)\s+(.+)$/i);
+    if (quitaMatch && session.items.length > 0) {
+        const target = quitaMatch[1]!.toLowerCase().trim();
+        const removeIdx = session.items.findIndex(it => 
+            it.productTitle.toLowerCase().includes(target) ||
+            it.variantTitle.toLowerCase().includes(target) ||
+            target.includes(it.productTitle.toLowerCase()) ||
+            (it.variantTitle && target.includes(it.variantTitle.toLowerCase())) ||
+            target.split(/\s+/).every(w => w.length >= 3 && (it.productTitle.toLowerCase().includes(w) || it.variantTitle.toLowerCase().includes(w)))
+        );
+        if (removeIdx >= 0) {
+            const removed = session.items.splice(removeIdx, 1)[0]!;
+            const rTitle = `${removed.productTitle}${removed.variantTitle && removed.variantTitle !== 'Único' ? ` (${removed.variantTitle})` : ''}`;
+            if (session.items.length === 0) {
+                session.pendingConfirmation = false;
+                return `🗑️ Eliminé *${rTitle}* del pedido. El pedido quedó vacío. ¿Qué producto deseas agregar?`;
+            }
+            if (session.customer) {
+                session.pendingConfirmation = true;
+                const summary = await generateSummaryText(session);
+                return `🗑️ Eliminé *${rTitle}* del pedido.\n\n` + summary;
+            } else {
+                return `🗑️ Eliminé *${rTitle}* del pedido.`;
+            }
+        }
+    }
+
+    // 0b. Respuesta directa a confirmación pendiente de creación de producto / aclaración fuera de catálogo
+    if (session.pendingCustomProduct) {
+        const pcp = session.pendingCustomProduct;
+        const num = parseInt(lowerText, 10);
+        const totalSuggestions = pcp.suggestions ? pcp.suggestions.length : 0;
+        const createOptionNum = totalSuggestions + 1;
+
+        let chosenAction: 'select_suggestion' | 'create_new' | 'search_again' | 'cancel' | null = null;
+        let selectedSuggestionIdx = -1;
+
+        if (lowerText === 'cancelar' || lowerText === 'descarta' || lowerText === 'descartar') {
+            chosenAction = 'cancel';
+        } else if (
+            lowerText === 'crear' || lowerText === 'créalo' || lowerText === 'crealo' || 
+            lowerText === 'es nuevo' || lowerText === 'nuevo' || lowerText === 'crear producto' ||
+            lowerText === 'crear como nuevo' || lowerText.includes('si, crealo') || lowerText.includes('sí, créalo') ||
+            lowerText === 'creelo' || lowerText === 'créelo' ||
+            (!isNaN(num) && num === createOptionNum)
+        ) {
+            chosenAction = 'create_new';
+        } else if (!isNaN(num) && num >= 1 && num <= totalSuggestions) {
+            chosenAction = 'select_suggestion';
+            selectedSuggestionIdx = num - 1;
+        } else if (
+            lowerText.includes('si existe') || lowerText.includes('sí existe') ||
+            lowerText.includes('los productos si existen') || lowerText.includes('los productos sí existen') ||
+            lowerText.includes('este producto si existe') || lowerText.includes('este producto sí existe') ||
+            lowerText.includes('buscar de nuevo') || lowerText === 'buscar' || lowerText === 'no' ||
+            (!isNaN(num) && totalSuggestions === 0 && num === 1)
+        ) {
+            chosenAction = 'search_again';
+        }
+
+        if (chosenAction === 'cancel') {
+            const discarded = pcp.title;
+            session.pendingCustomProduct = null;
+            return `❌ Descarté *${discarded}*. ¿En qué más te puedo ayudar?`;
+        }
+
+        if (chosenAction === 'create_new') {
+            session.items.push({
+                productTitle: pcp.title,
+                variantTitle: '',
+                quantity: pcp.quantity || 1,
+                price: pcp.unitPrice > 0 ? pcp.unitPrice.toString() : '0.00',
+                isCustom: true
+            });
+            const createdTitle = pcp.title;
+            session.pendingCustomProduct = null;
+
+            if (session.customer && session.items.length > 0) {
+                session.pendingConfirmation = true;
+                const summary = await generateSummaryText(session);
+                return `✅ Registrado como ítem nuevo/personalizado: *${createdTitle}*\n\n` + summary;
+            }
+            if (!session.customer) {
+                return `✅ Registrado como ítem nuevo/personalizado: *${createdTitle}*.\n\n👤 ¿A nombre de qué cliente registramos este pedido? *(El cliente es obligatorio)*`;
+            }
+        }
+
+        if (chosenAction === 'select_suggestion') {
+            const sug = pcp.suggestions[selectedSuggestionIdx]!;
+            session.items.push({
+                productTitle: sug.productTitle,
+                variantTitle: sug.variantTitle,
+                variantId: sug.variantId,
+                quantity: pcp.quantity || 1,
+                price: sug.price
+            });
+            session.pendingCustomProduct = null;
+
+            if (session.customer && session.items.length > 0) {
+                session.pendingConfirmation = true;
+                const summary = await generateSummaryText(session);
+                return `✅ Producto agregado del catálogo: *${sug.productTitle} (${sug.variantTitle})*\n\n` + summary;
+            }
+            if (!session.customer) {
+                return `✅ Producto agregado del catálogo: *${sug.productTitle} (${sug.variantTitle})*.\n\n👤 ¿A nombre de qué cliente registramos este pedido? *(El cliente es obligatorio)*`;
+            }
+        }
+
+        if (chosenAction === 'search_again') {
+            const cleanQuery = lowerText
+                .replace(/(?:el producto|los productos|este producto)?\s*(?:si|sí)\s*existe(?:n)?/gi, '')
+                .replace(/(?:buscar de nuevo|busca como|buscar como|búscalo como|busca|buscar|no)\s*/gi, '')
+                .replace(/[,\.;:]/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim();
+
+            const queryToUse = cleanQuery.length >= 2 ? cleanQuery : pcp.title;
+            const searchGroups = await searchProductsSmart(queryToUse);
+            const newSuggestions: CustomProductSuggestion[] = [];
+
+            for (const g of searchGroups.slice(0, 3)) {
+                if (g.selectedVariant) {
+                    newSuggestions.push({
+                        productId: g.productId,
+                        productTitle: g.title,
+                        variantId: g.selectedVariant.variantId,
+                        variantTitle: g.selectedVariant.title,
+                        price: g.selectedVariant.price
+                    });
+                } else if (g.variants && g.variants.length > 0) {
+                    for (const v of g.variants.slice(0, 2)) {
+                        newSuggestions.push({
+                            productId: g.productId,
+                            productTitle: g.title,
+                            variantId: v.variantId,
+                            variantTitle: v.title,
+                            price: v.price
+                        });
+                    }
+                }
+            }
+
+            if (newSuggestions.length > 0) {
+                pcp.suggestions = newSuggestions;
+                let msg = `🔍 Busqué *"${queryToUse}"* en el catálogo y encontré estas opciones existentes:\n\n`;
+                newSuggestions.forEach((s, idx) => {
+                    const priceFormatted = parseFloat(s.price).toLocaleString('es-CR');
+                    msg += `${idx + 1}. *${s.productTitle}* _(${s.variantTitle})_ — ₡${priceFormatted}\n`;
+                });
+                msg += `${newSuggestions.length + 1}. *Crear como producto nuevo / personalizado*\n\n`;
+                msg += `¿Cuál de ellos deseas agregar o cómo aparece exactamente en Shopify?`;
+                return msg;
+            } else {
+                return `🔍 Busqué *"${queryToUse}"* en el catálogo de Shopify pero no encontré ninguna coincidencia.\n\n` +
+                       `Por favor dime: ¿cómo aparece exactamente registrado en el inventario de Shopify, o prefieres que lo cree como *producto nuevo*?`;
+            }
+        }
+
+        // Si el usuario escribió un texto libre mientras estaba pendiente la confirmación del producto, buscarlo en catálogo
+        const searchGroups = await searchProductsSmart(text.trim());
+        if (searchGroups.length > 0 && searchGroups[0]!.score >= 35) {
+            const newSuggestions: CustomProductSuggestion[] = [];
+            for (const g of searchGroups.slice(0, 3)) {
+                if (g.selectedVariant) {
+                    newSuggestions.push({
+                        productId: g.productId,
+                        productTitle: g.title,
+                        variantId: g.selectedVariant.variantId,
+                        variantTitle: g.selectedVariant.title,
+                        price: g.selectedVariant.price
+                    });
+                } else if (g.variants && g.variants.length > 0) {
+                    for (const v of g.variants.slice(0, 2)) {
+                        newSuggestions.push({
+                            productId: g.productId,
+                            productTitle: g.title,
+                            variantId: v.variantId,
+                            variantTitle: v.title,
+                            price: v.price
+                        });
+                    }
+                }
+            }
+            if (newSuggestions.length > 0) {
+                pcp.suggestions = newSuggestions;
+                let msg = `🔍 Para *"${text.trim()}"*, encontré estas opciones en el catálogo:\n\n`;
+                newSuggestions.forEach((s, idx) => {
+                    const priceFormatted = parseFloat(s.price).toLocaleString('es-CR');
+                    msg += `${idx + 1}. *${s.productTitle}* _(${s.variantTitle})_ — ₡${priceFormatted}\n`;
+                });
+                msg += `${newSuggestions.length + 1}. *Crear como producto nuevo / personalizado*\n\n`;
+                msg += `¿Cuál de ellos es? _(Responde con el número)_`;
+                return msg;
+            }
+        }
     }
 
     // 0b. Respuesta directa a aclaración pendiente de cliente (interacción numérica 1, 2, 3...)
@@ -725,13 +1032,18 @@ export async function processConversationMessage(chatId: number, text: string, a
             const rawProd = mi.product_title || (mi as any).product || '';
             const rawVar = mi.variant_title || (mi as any).variant || '';
             const miProdNorm = rawProd.toLowerCase().trim();
+            const miVarNorm = rawVar.toLowerCase().trim();
             if (!miProdNorm) continue;
 
-            // GUARD ANTI-ECO: Si el producto ya está en el pedido y el mensaje actual del usuario NO menciona este producto, ignorar eco de IA.
-            const existingItem = session.items.find(it => it.productTitle.toLowerCase() === miProdNorm);
+            // GUARD ANTI-ECO MEJORADO: Compara tanto producto como variante para no bloquear segundas variantes legítimas
+            const existingItem = session.items.find(it => 
+                it.productTitle.toLowerCase() === miProdNorm &&
+                (it.variantTitle.toLowerCase() === miVarNorm || (!it.variantTitle && !miVarNorm))
+            );
             const userMentionedProd = lowerText.includes(miProdNorm) || 
-                (rawVar && lowerText.includes(rawVar.toLowerCase())) ||
-                miProdNorm.split(/\s+/).some((w: string) => w.length >= 4 && lowerText.includes(w));
+                (miVarNorm && lowerText.includes(miVarNorm)) ||
+                miProdNorm.split(/\s+/).some((w: string) => w.length >= 4 && lowerText.includes(w)) ||
+                (miVarNorm && miVarNorm.split(/\s+/).some((w: string) => w.length >= 3 && lowerText.includes(w)));
             if (existingItem && !userMentionedProd) {
                 continue;
             }
@@ -741,22 +1053,31 @@ export async function processConversationMessage(chatId: number, text: string, a
                 prod = products.find(p => p.title.toLowerCase().includes(miProdNorm) || miProdNorm.includes(p.title.toLowerCase()));
             }
 
+            // Fallback inteligente con searchProductsSmart si el nombre no coincide exactamente
+            let smartVariant: MatchedVariant | null = null;
             if (!prod) {
-                session.items.push({
-                    productTitle: rawProd,
-                    variantTitle: rawVar || '',
-                    quantity: mi.quantity || 1,
-                    price: '0.00',
-                    isCustom: true
-                });
-                continue;
+                const smartMatches = await searchProductsSmart(rawProd, rawVar);
+                if (smartMatches.length > 0 && smartMatches[0]!.score >= 50) {
+                    const topMatch = smartMatches[0]!;
+                    prod = products.find(p => p.id === topMatch.productId) || null;
+                    if (topMatch.selectedVariant) {
+                        smartVariant = topMatch.selectedVariant;
+                    }
+                }
             }
 
-            const miVarNorm = rawVar.toLowerCase().trim();
-            let variant = prod.variants.find((v: any) => {
-                const vt = (v.title === 'Default Title' ? 'Único' : v.title).toLowerCase().trim();
-                return vt === miVarNorm;
-            });
+            if (!prod) {
+                // El producto no existe en el catálogo: NO crearlo a ciegas, preguntar primero al asesor
+                return await prepareCustomProductQuestion(rawProd, mi.quantity || 1, 0, text, session);
+            }
+
+            let variant = smartVariant;
+            if (!variant) {
+                variant = prod.variants.find((v: any) => {
+                    const vt = (v.title === 'Default Title' ? 'Único' : v.title).toLowerCase().trim();
+                    return vt === miVarNorm;
+                });
+            }
 
             if (!variant && prod.variants.length === 1) {
                 variant = prod.variants[0];
@@ -776,7 +1097,7 @@ export async function processConversationMessage(chatId: number, text: string, a
             session.items.push({
                 productTitle: prod.title,
                 variantTitle: officialVariantTitle,
-                variantId: variant?.id,
+                variantId: (variant as any)?.id || (variant as any)?.variantId,
                 quantity: mi.quantity || 1,
                 price: officialPrice
             });
@@ -798,13 +1119,25 @@ export async function processConversationMessage(chatId: number, text: string, a
                 continue;
             }
 
-            session.items.push({
-                productTitle: ci.title || 'Ítem personalizado',
-                variantTitle: '',
-                quantity: ci.quantity || 1,
-                price: (ci.unit_price || 0).toString(),
-                isCustom: true
-            });
+            // Verificar primero si el producto realmente existe en el catálogo de Shopify con searchProductsSmart
+            const smartMatches = await searchProductsSmart(ci.title);
+            if (smartMatches.length > 0 && smartMatches[0]!.score >= 70 && smartMatches[0]!.selectedVariant) {
+                const topMatch = smartMatches[0]!;
+                const prod = products.find(p => p.id === topMatch.productId);
+                if (prod && topMatch.selectedVariant) {
+                    session.items.push({
+                        productTitle: prod.title,
+                        variantTitle: topMatch.selectedVariant.title,
+                        variantId: topMatch.selectedVariant.variantId,
+                        quantity: ci.quantity || 1,
+                        price: topMatch.selectedVariant.price
+                    });
+                    continue;
+                }
+            }
+
+            // Si no existe con certeza en el catálogo, NUNCA crearlo a ciegas: preguntar primero al usuario
+            return await prepareCustomProductQuestion(ci.title, ci.quantity || 1, ci.unit_price || 0, text, session);
         }
     }
 
@@ -853,6 +1186,10 @@ export async function processConversationMessage(chatId: number, text: string, a
 
     let warningPrefix = '';
     if (analysis.not_found && analysis.not_found.length > 0) {
+        const nfTerm = analysis.not_found[0]!;
+        if (session.items.length === 0) {
+            return await prepareCustomProductQuestion(nfTerm, 1, 0, text, session);
+        }
         warningPrefix = `⚠️ No encontré en el catálogo: *${analysis.not_found.join(', ')}*.\n¿Cómo aparece registrado en el inventario?\n\n`;
     }
 
