@@ -1,12 +1,12 @@
 # Plan del proyecto: Punto Fusión - Asistente Telegram & Shopify
 
 Creado: 2026-10-16
-Última actualización: 2026-10-30
-Última revisión: 2026-10-30
+Última actualización: 2026-10-31
+Última revisión: 2026-10-31
 Zona horaria: America/Bogota (UTC-5)
-Base de revisión: Implementación de tablas en Supabase para pedidos diarios de alumnos y motor de consolidación de estados de cuenta bajo demanda y programado.
+Base de revisión: Consulta y requerimiento del usuario del 2026-10-31 (funcionalidad de consulta de precios en Telegram sin afectar la orden activa). Entorno local y VPS revisados.
 Fuente canónica: PLAN_PROYECTO.md
-Estado del plan: Hito H5 completado / En despliegue
+Estado del plan: H6 cerrado (reiniciar). Hito activo W1 (WhatsApp: calendario y dashboard). H5 con despliegue pendiente.
 
 ## Norte y alcance
 
@@ -47,10 +47,16 @@ Estado del plan: Hito H5 completado / En despliegue
 | H3 | Bot de Telegram y Flujo de Conversación | Flujo de diálogo en Telegram para recibir texto informal, mostrar borrador y confirmar orden | H2 | hecha | 2026-10-16 |
 | H4 | Pruebas End-to-End con el Asesor | Pedido real de prueba tomado en Telegram y verificado en el panel de pedidos de Shopify | H3 | hecha | 2026-10-16 |
 | H5 | Estados de Cuenta Diarios por Alumno y Persistencia en Supabase | Generación bajo demanda y al cierre diario del estado consolidado de pedidos y montos por alumno, guardado en Supabase | H3, H4 | hecha | 2026-10-24 |
-| H6 | Definición independiente del proyecto con EGM (sin mirar el código), comparación con lo construido y decisión de corregir o reiniciar | Design doc revisado en `docs/designs/`; matriz de brechas contra el código; decisión documentada (corregir o reiniciar) | - (H5 no lo bloquea) | pendiente | por definir |
+| H6 | Definición independiente del proyecto con EGM (sin mirar el código), comparación con lo construido y decisión de corregir o reiniciar | Design doc revisado en `docs/designs/`; matriz de brechas contra el código; decisión documentada (corregir o reiniciar) | - (H5 no lo bloquea) | hecha (decisión: reiniciar) | 2026-10-30 |
+| W1 | WhatsApp: Calendario y dashboard (sin bot) | El dueño carga grupos y alumnos reales y mueve un alumno desde el dashboard sin poder romper las reglas duras (cupo, una clase por persona por día); probado en local | H6 | en_curso | por definir |
+| W2 | WhatsApp: Bot para alumnos, núcleo (cancelar y reponer) | Un alumno real cancela y repone por WhatsApp sin intervención y el calendario queda consistente | W1 | pendiente | por definir |
+| W3 | WhatsApp: Recordatorios (1 día y 1 hora antes) y confirmaciones | Recordatorios enviados con plantillas aprobadas de Meta; sin recordatorios en cierres | W2 | pendiente | por definir |
+| W4 | WhatsApp: Ausencias, taller sin asistencia, sesiones virtuales y estado de pago | Flujos de ausencia y reglas de pago aplicadas desde datos | W2 | pendiente | por definir |
+| W5 | WhatsApp: Taller asistido para no alumnos con pago WOP | Cupo bloqueado durante el pago, aprobación por Telegram, devolución al segundo pagador | W1, W2 | pendiente | por definir |
+| W6 | WhatsApp: Endurecimiento y extras | Datos personales revisados, turnero web, nodos del guion fuera de alcance decididos | W2 | pendiente | por definir |
 
-Hito activo: H5 (Estados de Cuenta Diarios por Alumno y Persistencia en Supabase)
-Hito aprobado por el usuario el 2026-10-30, sin iniciar: H6 (el usuario lanza cada skill EGM).
+Hito activo: W1 (Calendario y dashboard). Detalle de los hitos W1 a W6 y decisiones de producto: [concepts_brief.md](docs/egm/concepts_brief.md).
+H5 sigue con despliegue pendiente (R-04); no lo bloquea W1.
 
 ## Trabajo comprometido
 
@@ -76,6 +82,7 @@ Hito aprobado por el usuario el 2026-10-30, sin iniciar: H6 (el usuario lanza ca
 | T-18 | H5 | Arquitectura 100% IA-First para clasificación de intenciones (Cero reglas duras/regexes) | Eliminación de regexes y compuertas rígidas de entrada; `gpt-6-luna` clasifica semánticamente cada mensaje en `intent` (general_report, student_report, order, confirmation, cancellation) extrayendo período y alumno dinámicamente | T-16, T-17 | P1 | hecha | Antigravity | 2026-10-24: Probado con mensajes informales ("Pásame el detalle x cliente", "cuánto debe Liliana", "Haz cierre", etc.); compilado y verificado OK |
 | T-19 | H5 | Chunking seguro en Telegram (>4096 caracteres), meses nominales y memoria de período de reporte | `replySafely` divide automáticamente reportes largos por párrafos/alumnos respetando el límite de Telegram; soporte para nombres de meses (ej. "octubre"); persistencia de período en sesión para consultas secuenciales ("el mismo detalle para...") | T-15, T-18 | P1 | hecha | Antigravity | 2026-10-25: Probado con reporte de 7.200 caracteres (partido en 2 chunks) y parseDateRange('octubre') OK |
 | T-19b | H5 | Interceptor interactivo antes de crear productos personalizados, corrección de búsqueda de metales/gemas y remoción de ítems | Preguntar al usuario antes de crear productos fuera de catálogo; sugerencias difusas de inventario existente; corrección de reglas de hilo 950 y piedras calibradas/esmeraldas; corrección de guardrail anti-eco por variante; soporte para 'quita X' | T-18, T-19 | P1 | hecha | Antigravity | 2026-10-30: Verificado con simulaciones locales de hilo 1mm, piedras 1.5mm + esmeralda 2mm simultáneas, eliminación y confirmación interactiva antes de crear |
+| T-19c | H3 | Consulta conversacional de precios de productos y variantes (price_inquiry) | Detección de intención 'price_inquiry' por voz/texto (ej. "¿cuánto cuesta el hilo de 1mm?", "a cómo están los helados", "precio de almojábana"); búsqueda tolerante en catálogo de Shopify y respuesta con precios y variantes formateados en CRC sin alterar el borrador de orden en curso | T-07, T-18 | P1 | hecha | Antigravity | 2026-10-31: Implementada intención price_inquiry en IA, handlePriceInquiry tolerante con catálogo de Shopify y variantes; comandos /precio y /precios en bot.ts; probado con hilo 1mm, piedras calibradas, almojábana, esmeralda 2mm, plata 1000, producto no encontrado y preservación de orden activa |
 
 ### Flujo EGM (H6): definir primero, comparar después, construir con Claude Code
 
@@ -84,12 +91,38 @@ Orden decidido por el usuario el 2026-10-30. Los skills EGM son de invocación m
 | ID | Hito | Tarea y entregable | Aceptación | Depende de | Prioridad | Estado | Responsable | Evidencia |
 |---|---|---|---|---|---|---|---|---|
 | T-20 | H6 | Fase 0: fijar producto, reunir insumo del brainstorm y añadir `EGM artifact directory: docs/egm` a `CLAUDE.md` | Producto confirmado por el usuario; `INSUMO_BRAINSTORM.md` y `FUENTES.md` creados; línea añadida en `CLAUDE.md` | - | P1 (propuesta) | hecha | Claude Code / Usuario | 2026-10-30: usuario eligió el chatbot de WhatsApp (corrigió una respuesta previa que decía Telegram); [FUENTES.md](docs/egm/FUENTES.md), [INSUMO_BRAINSTORM.md](docs/egm/INSUMO_BRAINSTORM.md) y línea en `CLAUDE.md` verificados en disco |
-| T-21 | H6 | Fase 1a: `/egm:egm-brainstorm` sobre `docs/egm/INSUMO_BRAINSTORM.md`, sin código | `concepts_brief.md` con objetivo, usuarios, alcance, exclusiones e hipótesis, aprobado por el usuario | T-20 | P1 (propuesta) | pendiente | Usuario / Claude Code | - |
-| T-22 | H6 | Fase 1b: `/egm:egm-draft` | Design doc por secciones en `docs/designs/` más `SITEMAP.md`, aprobado por el usuario | T-21 | P1 (propuesta) | pendiente | Usuario / Claude Code | - |
-| T-23 | H6 | Fase 1c: `/egm:egm-review` | Informe de revisión guardado; hallazgos aceptados o descartados con motivo registrado | T-22 | P1 (propuesta) | pendiente | Usuario / Claude Code | - |
-| T-24 | H6 | Fase 2: `/egm:egm-bootstrap` sobre el código existente y matriz de brechas (requisito vs construido: cumple, parcial, falta, sobra) | READMEs revisados por una persona; matriz con evidencia por requisito; incluye la sync con el Agendador | T-23 | P1 (propuesta) | pendiente | Claude Code / Usuario | - |
-| T-25 | H6 | Fase 3: decisión corregir o reiniciar | Decisión del usuario registrada, apoyada en: % de requisitos centrales cumplidos, reutilización de datos e integraciones (Supabase, Agendador, Shopify) y costo de corregir contra reconstruir | T-24 | P1 (propuesta) | pendiente | Usuario | - |
+| T-21 | H6 | Fase 1a: `/egm:egm-brainstorm` sobre `docs/egm/INSUMO_BRAINSTORM.md`, sin código | `concepts_brief.md` con objetivo, usuarios, alcance, exclusiones e hipótesis, aprobado por el usuario | T-20 | P1 (propuesta) | hecha | Usuario / Claude Code | 2026-10-30: [concepts_brief.md](docs/egm/concepts_brief.md) con revisión de 6 Goldfish, decisiones del usuario e hitos W1–W6 aprobados por el usuario |
+| T-22 | H6 | Fase 1b: `/egm:egm-draft` | Design doc por secciones en `docs/designs/` más `SITEMAP.md`, aprobado por el usuario | T-21 | P1 (propuesta) | cancelada | Usuario / Claude Code | 2026-10-30: el usuario pidió construir por hitos desde el brief; el diseño se hace por hito |
+| T-23 | H6 | Fase 1c: `/egm:egm-review` | Informe de revisión guardado; hallazgos aceptados o descartados con motivo registrado | T-22 | P1 (propuesta) | cancelada | Usuario / Claude Code | 2026-10-30: misma razón que T-22 |
+| T-24 | H6 | Fase 2: `/egm:egm-bootstrap` sobre el código existente y matriz de brechas (requisito vs construido: cumple, parcial, falta, sobra) | READMEs revisados por una persona; matriz con evidencia por requisito; incluye la sync con el Agendador | T-23 | P1 (propuesta) | cancelada | Claude Code / Usuario | 2026-10-30: el usuario decidió construir de cero; no se compara con lo construido |
+| T-25 | H6 | Fase 3: decisión corregir o reiniciar | Decisión del usuario registrada, apoyada en: % de requisitos centrales cumplidos, reutilización de datos e integraciones (Supabase, Agendador, Shopify) y costo de corregir contra reconstruir | T-24 | P1 (propuesta) | hecha | Usuario | 2026-10-30: "Crea lo de cero"; el stack viejo y sus tablas no se tienen en cuenta |
 | T-26 | H6 | Fase 4: reescribir este plan (hitos de construcción desde el design doc) y actualizar `CLAUDE.md` para que Claude Code sea el ejecutor y planificador, sin depender de Antigravity | Plan y `CLAUDE.md` actualizados tras confirmación explícita del usuario; incluye `/egm:egm-drift-report` semanal (opcional) | T-25 | P2 (propuesta) | pendiente | Claude Code / Usuario | - |
+
+### W1: Calendario y dashboard (repo nuevo `punto_fusion_agenda`, Next.js, local primero)
+
+Repositorio local en `/Users/macair/Antigravity-projects/punto_fusion_agenda` (decisión del usuario: repo nuevo; Next.js todo en uno). Aún sin remoto en GitHub.
+
+| ID | Hito | Tarea y entregable | Aceptación | Depende de | Prioridad | Estado | Responsable | Evidencia |
+|---|---|---|---|---|---|---|---|---|
+| T-30 | W1 | Modelo de datos con reglas duras en Postgres (esquema `agenda`) y migrador | Pruebas contra Postgres real: cupo, concurrencia, una clase por persona por día, cierres, generación de sesiones, padrón | - | P1 | hecha | Claude Code | 2026-10-30: `db/migrations/001_esquema_inicial.sql`; `pnpm test:db` 12/12 en `agenda_test`; prueba de mutación (sin bloqueo de fila la prueba de concurrencia falla); `agenda_dev` migrada |
+| T-31 | W1 | API del calendario (route handlers de Next.js) con autenticación por clave | Endpoints de alumnos, teléfonos, grupos, inscripciones, sesiones, asistencias, cierres y mensualidades; errores de reglas duras traducidos a respuestas claras; pruebas | T-30 | P1 | hecha | Claude Code | 2026-10-30: `src/app/api/v1/*` (CRUD por recurso, `calendario`, `sesiones/generar`, `asistencias/{id}/mover`), migración `002_cancelaciones_en_cascada.sql`; `pnpm test` 23/23 (11 HTTP contra `next dev` + 12 de base); `tsc`, lint y `next build` OK. Documentado en README del repo |
+| T-32 | W1 | Dashboard (calendario semanal, alumnos, grupos, cierres, mover alumno) siguiendo el pipeline de diseño (impeccable → huashu-design → ui-ux-pro-max) | El dueño carga datos reales y mueve un alumno en local sin poder romper reglas | T-31 | P1 | en_curso (falta la prueba del dueño) | Claude Code / Usuario | 2026-10-30: dirección «Tablero de salidas» elegida por el usuario (seed 86412a36); varias cuentas con sesiones en BD (migración 003); pantallas tablero/pase/modo mover, alumnos, grupos, cierres, cuentas y login; mover y rechazo CUPO_LLENO probados en navegador con datos demo; revisión independiente: 2 rondas (8 correcciones, 6 resueltas + 2 verificadas en captura, 3 regresiones corregidas); detector sin hallazgos; `pnpm test` 24/24; `next build` OK. huashu-design omitido: la exploración se hizo en la página de decisión de impeccable. 2026-10-31: tras la prueba del usuario se agregó la vista de mes (`/mes`, selector Semana | Mes) para ver cupos de todo el mes; verificada en 1440/1280/390 px |
+| T-33 | W1 | Empaquetado Docker y despliegue en el VPS | App arriba en la URL que entregue el usuario, contra Supabase del VPS | T-32, aprobación en local | P2 | bloqueada | Usuario / Claude Code | Desbloqueo: aprobación en local y URL del usuario |
+
+### W2: Bot de WhatsApp para alumnos, núcleo (repo `punto_fusion_agenda`)
+
+Diseño y decisiones: `docs/W2.md` del repo. Decisiones del usuario (2026-10-31): modelo OpenAI (misma cuenta que Telegram); la línea de WhatsApp aún no existe → simulador local primero; avisos por un bot de Telegram nuevo; aviso tardío libera la plaza y la clase se da por tomada; cancelar/reponer una vez al mes.
+
+| ID | Hito | Tarea y entregable | Aceptación | Depende de | Prioridad | Estado | Responsable | Evidencia |
+|---|---|---|---|---|---|---|---|---|
+| T-40 | W2 | Plan de W2 por escrito | `docs/W2.md` con decisiones y tareas | W1 | P1 | hecha | Claude Code / Usuario | 2026-10-31: `docs/W2.md` |
+| T-41 | W2 | Migración 004: reglas configurables y novedades | Migra y las pruebas siguen pasando | T-40 | P1 | hecha | Claude Code | 2026-10-31: `004_reglas_y_novedades.sql`; `pnpm test` 29/29 |
+| T-42 | W2 | Motor de cancelación y reposición + endpoints API | Pruebas de cada regla (a tiempo, segunda del mes, tardía, clase pasada, fuera de plazo, un solo uso) | T-41 | P1 | hecha | Claude Code | 2026-10-31: `src/lib/reglas.ts`, `POST /asistencias/{id}/cancelar`, `GET/POST /alumnos/{id}/reposicion`; 5 pruebas nuevas; mutación de la regla mensual detectada |
+| T-43 | W2 | Agente conversacional OpenAI con herramientas | Conversaciones de prueba en el simulador | T-42 | P1 | pendiente | Claude Code | - |
+| T-44 | W2 | Canal: simulador local + adaptador WhatsApp Cloud | Simulador funcionando; firma del webhook probada | T-43 | P1 | pendiente | Claude Code | - |
+| T-45 | W2 | Coexistencia: silencio 15 min, reproceso, interruptor global | Pruebas con ecos simulados | T-44 | P1 | pendiente | Claude Code | - |
+| T-46 | W2 | Avisos por Telegram (bot nuevo) | Aviso recibido en el chat del equipo | T-43 | P2 | bloqueada | Usuario / Claude Code | Desbloqueo: token del bot nuevo de BotFather y chat de destino |
+| T-47 | W2 | Prueba de punta a punta | Un alumno cancela y repone sin intervención | T-43…T-46 | P1 | pendiente | Usuario / Claude Code | Con línea real: requiere app de Meta y número en coexistencia |
 
 ## Bloqueos y riesgos relevantes
 
@@ -99,6 +132,9 @@ Orden decidido por el usuario el 2026-10-30. Los skills EGM son de invocación m
 | R-02 | H6 | Discrepancia sin resolver: la sync con el Agendador (`pf_bookings`, `/api/bookings/reconcile`, etc.) no figura en este plan | La comparación podría omitir parte del sistema | Incluirla en T-24 y verificar contra el código | Claude Code |
 | R-03 | H6 | `CLAUDE.md` asigna la arquitectura a Antigravity, pero el usuario decidió construir con Claude Code | Roles contradictorios mientras no se actualice | Actualizar `CLAUDE.md` en T-26, tras confirmación explícita del usuario | Usuario |
 | R-04 | H5 | Despliegue de H5 pendiente (commit, push y deploy) | Puede ser innecesario si T-25 decide reiniciar | Decidir en T-25; mientras tanto no se toca el código | Usuario |
+| R-06 | W1 | El "stack viejo" del VPS incluye la API que hoy corre el bot de Telegram/Shopify (H5) y las tablas `pf_*` y la sync con el Agendador (`cal_*`) | Borrarlo sin revisar podría apagar el bot de Telegram en producción | No se toca el VPS en W1. Las tablas nuevas van en un esquema propio para no mezclarse. Cualquier limpieza del VPS se revisa aparte y con confirmación explícita | Usuario / Claude Code |
+| R-07 | W1 | No hay Docker local; Postgres 18 local (Homebrew) sí está activo | Supabase local (CLI) no se puede usar; el desarrollo local va sobre Postgres directo | Migraciones SQL portables a Supabase del VPS; verificar en T-33 que `btree_gist` se cree en el esquema de extensiones de Supabase | Claude Code |
+| R-08 | W1 | Regla de cupo de inscripciones es conservadora: cuenta todas las inscripciones que se cruzan con el rango nuevo | En casos raros (inscripciones que se suceden en el tiempo) podría rechazar una inscripción válida | Aceptado para W1; revisar si aparece en uso real | Claude Code |
 | R-05 | H6 | Divergencia de producto entre los documentos de WhatsApp y este plan (Telegram/Shopify) | - | Resuelto 2026-10-30: el usuario eligió WhatsApp para esta definición; Telegram/Shopify queda fuera (ya funciona) | Usuario |
 
 ## Backlog de ideas
@@ -134,8 +170,11 @@ Orden decidido por el usuario el 2026-10-30. Los skills EGM son de invocación m
 | 2026-10-30 | Producto a definir con EGM: chatbot de WhatsApp (Estudio Punto Fusión & Auri Alta Joyería); Telegram/Shopify queda fuera. Corrige la decisión previa del mismo día, que decía Telegram | El usuario aclaró que el producto a definir es el de WhatsApp | T-20 cerrada; el insumo del brainstorm sale del guion de WhatsApp. Este plan (Telegram) describe otro producto, que no se redefine. En T-24 se compara el código con el producto de WhatsApp | Usuario |
 | 2026-10-30 | Confirmación previa antes de crear productos personalizados / fuera de catálogo y corrección de búsqueda (T-19b) | Incidentes en logs donde "hilo 1mm" o "piedras" no eran encontrados o eran creados como custom items sin consultar; guardrail anti-eco bloqueaba variantes adicionales del mismo producto (ej. esmeralda tras piedras 1.5mm) | NUNCA agregar productos personalizados automáticamente: preguntar al usuario con opciones difusas de inventario; corregir reglas de hilo 950 y piedras calibradas/esmeraldas en prompt; comparar variantes en anti-eco; soporte para 'quita X' | Usuario / Antigravity |
 
+| 2026-10-30 | H6 cerrado con decisión de reiniciar; se abren los hitos W1–W6 del chatbot de WhatsApp | El usuario aprobó el brief y los hitos y pidió construir de cero, en local primero | Se cancelan T-22, T-23 y T-24. W1 pasa a ser el hito activo. El despliegue al VPS espera la URL que dará el usuario tras aprobar en local | Usuario |
+
 ## Próximo paso
 
-1. Commit, push a GitHub y despliegue en producción en el VPS (`puntofusion_punto-fusion-api`). Monitoreo en vivo (H5).
-2. H6: T-20 hecha. Lanzar `/egm:egm-brainstorm` en sesión limpia usando `docs/egm/INSUMO_BRAINSTORM.md` y el guion de WhatsApp (T-21). No tocar el código hasta T-24.
+1. W1: dashboard aprobado por el usuario en local (2026-10-31) y primer commit `89b5500` en `punto_fusion_agenda`, subido al repo privado https://github.com/aromeroconde/punto_fusion_agenda (rama `main`). Falta T-33 (despliegue) con la URL que dé el usuario.
+2. W2: T-43 (agente conversacional) sobre el motor de T-42. Pedir al usuario el token del bot de Telegram nuevo (T-46) y crear la app de Meta cuando se pueda (T-47).
+2. H5: commit, push y despliegue pendientes (R-04), independientes de W1.
 

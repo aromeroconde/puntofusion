@@ -2,7 +2,7 @@ import { Bot, Context } from 'grammy';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import path from 'path';
-import { processConversationMessage, resetSession } from './lib/orderAgent.js';
+import { processConversationMessage, resetSession, handlePriceInquiry } from './lib/orderAgent.js';
 import { transcribeTelegramVoice } from './lib/transcriber.js';
 import { generateDailyAccountStatement } from './lib/dailyReport.js';
 import { logInfo, logError } from './lib/logger.js';
@@ -102,16 +102,47 @@ bot.command(['reporte', 'resumen', 'cierre', 'estadodecuenta'], async (ctx) => {
     }
 });
 
+// Comando /precio o /precios
+bot.command(['precio', 'precios'], async (ctx) => {
+    const query = ctx.match?.trim();
+    if (!query) {
+        await replySafely(
+            ctx,
+            `🏷️ *Consulta de precios:*\n\n` +
+            `Por favor escribe el nombre del producto después del comando.\n` +
+            `_Ejemplos:_\n` +
+            `• \`/precio hilo 1mm\`\n` +
+            `• \`/precio esmeralda 2mm\`\n` +
+            `• \`/precio almojabana\`\n` +
+            `• \`/precio piedras calibradas\`\n\n` +
+            `_O simplemente pregúntame por voz o texto: "¿A cómo está el hilo de 1mm?"_`
+        );
+        return;
+    }
+
+    await ctx.replyWithChatAction('typing');
+    try {
+        logInfo(`[Chat ${ctx.chat.id}] Consulta de precio por comando /precio: "${query}"`);
+        const response = await handlePriceInquiry(ctx.chat.id, query);
+        await replySafely(ctx, response);
+    } catch (err: any) {
+        logError('Error consultando precio por comando:', err);
+        await replySafely(ctx, `❌ Error consultando el precio: ${err.message}`);
+    }
+});
+
 // Comando /start o /reiniciar
 bot.command(['start', 'reiniciar', 'nuevo'], async (ctx) => {
     resetSession(ctx.chat.id);
     await ctx.reply(
-        `👋 *¡Hola! Soy el asistente interno de pedidos de Punto Fusión.*\n\n` +
-        `Puedes hablarme por **nota de voz** o **escribirme** en lenguaje natural y mantendré la conversación hasta confirmar el pedido en Shopify.\n\n` +
-        `📝 *Ejemplo por voz o texto:*\n` +
-        `_"fresas cónicas para engaste para Marta Peraza en borrador"_\n` +
-        `_"una cegueta de 15 cm para Pepito Pérez"_\n\n` +
-        `_(Si en algún momento deseas empezar de cero, envía /reiniciar)_`,
+        `👋 *¡Hola! Soy el asistente interno de Punto Fusión.*\n\n` +
+        `Puedes hablarme por **nota de voz** o **escribirme** en lenguaje natural para gestionar pedidos, consultar consumos o consultar precios de productos.\n\n` +
+        `📝 *Ejemplos por voz o texto:*\n` +
+        `• _"fresas cónicas para engaste para Marta Peraza" (Pedido)_\n` +
+        `• _"¿A cómo está el hilo de 1mm?" (Consulta de precio)_\n` +
+        `• _"¿Cuánto valen las piedras calibradas?" (Consulta de precio)_\n` +
+        `• _"Dame el consumo de Caro Madrigal de esta semana" (Reporte)_\n\n` +
+        `_(Comandos directos: /precio [producto], /reporte, /reiniciar)_`,
         { parse_mode: 'Markdown' }
     );
 });

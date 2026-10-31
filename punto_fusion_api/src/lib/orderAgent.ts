@@ -142,9 +142,10 @@ export interface AINeedsClarification {
 }
 
 export interface AIOrderAnalysis {
-    intent?: 'order' | 'general_report' | 'student_report' | 'confirmation' | 'cancellation';
+    intent?: 'order' | 'general_report' | 'student_report' | 'confirmation' | 'cancellation' | 'price_inquiry';
     student_name?: string | null;
     period?: string | null;
+    product_query?: string | null;
     is_cancellation?: boolean;
     is_confirmation?: boolean;
     is_report_request?: boolean;
@@ -173,11 +174,16 @@ CLASIFICACIÓN DE INTENCIÓN (intent):
    - Define "student_name": nombre del alumno extraído del mensaje (ej: "Caro Madrigal", "Liliana", "Marta").
    - Define "period": el período solicitado ("hoy", "ayer", "esta semana", "este mes", etc.). Si el usuario dice "el mismo detalle", "igual para", o no especifica un período, asigna como período el último consultado: "${session.lastReportPeriod || "hoy"}".
 
-3. "cancellation": Cuando el usuario cancela la orden actual ("cancelar", "cancela", "olvídalo", "descartar").
+3. "price_inquiry": Cuando el usuario únicamente pregunta, consulta o cotiza el precio, costo o valor de uno o varios productos o variantes (ej: "¿cuánto cuesta el hilo de 1mm?", "a cómo están las almojábanas", "precio de la plata pura", "a cuánto las esmeraldas", "¿cuánto vale el café americano?", "qué precio tienen las brocas", "precio lija 400", "cuánto vale el gramo de plata 950", "costo de...", "valor de...", "cotiza...").
+   - NO es una orden; el usuario solo pide información de precios y NO está ordenando productos para un cliente en este mensaje.
+   - Define "product_query": término de búsqueda del producto o variedad consultada (ej: "hilo 1mm", "almojabana", "plata pura", "esmeralda 2mm", "brocas").
+   - Si identificas productos o variantes específicos del catálogo para la consulta, colócalos también en "matched_items" con quantity: 1.
 
-4. "confirmation": Cuando el usuario confirma el pedido pendiente ("sí", "dale", "confirmar", "ok", "guardar").
+4. "cancellation": Cuando el usuario cancela la orden actual ("cancelar", "cancela", "olvídalo", "descartar").
 
-5. "order": Cuando el usuario está ordenando productos, creando o modificando un pedido (ej: "una cegueta para Pepito", "2 empanadas y un café para Marta").
+5. "confirmation": Cuando el usuario confirma el pedido pendiente ("sí", "dale", "confirmar", "ok", "guardar").
+
+6. "order": Cuando el usuario está ordenando productos, creando o modificando un pedido (ej: "una cegueta para Pepito", "2 empanadas y un café para Marta").
 
 Catálogo actual de productos y variantes en Shopify:
 ${catalogText}
@@ -221,8 +227,9 @@ Reglas semánticas clave para pedidos ("order"):
 
 Devuelve ÚNICAMENTE un JSON con esta estructura exacta:
 {
-  "intent": "general_report" | "student_report" | "order" | "confirmation" | "cancellation",
+  "intent": "general_report" | "student_report" | "price_inquiry" | "order" | "confirmation" | "cancellation",
   "student_name": "Nombre de alumno si es student_report o null",
+  "product_query": "Término del producto consultado si es price_inquiry o null",
   "period": "hoy" | "ayer" | "esta_semana" | "este_mes" | null,
   "customer_name": "Nombre de cliente si se menciona o null",
   "wants_draft": true/false/null,
@@ -443,6 +450,164 @@ async function prepareCustomProductQuestion(
     return msg;
 }
 
+// Detector rápido para consultas directas de precios
+export function isLikelyPriceInquiry(text: string): boolean {
+    const norm = text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+    if (/^(?:(?:hola|buenas|oye|porfa|por favor)\s*)?(?:(?:me\s+)?(?:dices|puedes decir|sabes|sabras)\s+)?(?:a\s+como|cuanto\s+(?:cuesta|vale|sale)|precios?|que\s+precio\s+tiene(?:n)?|valor|costo|cotiza|cotizacion)\b/i.test(norm)) {
+        return true;
+    }
+    if (/(?:cuanto\s+(?:cuesta|vale)|a\s+como\s+esta(?:n)?|que\s+precio\s+tiene(?:n)?)\b/i.test(norm)) {
+        return true;
+    }
+    return false;
+}
+
+// Manejador especializado de consulta de precios y variantes de Shopify
+export async function handlePriceInquiry(
+    chatId: number,
+    text: string,
+    analysis?: AIOrderAnalysis | null
+): Promise<string> {
+    const session = getSession(chatId);
+    const catalogProducts = await getCatalogProducts();
+
+    let matchedFromAI = false;
+    const blocks: string[] = [];
+
+    // 1. Si la IA reconoció productos específicos en matched_items
+    if (analysis && analysis.matched_items && analysis.matched_items.length > 0) {
+        for (const mi of analysis.matched_items) {
+            const miProdNorm = mi.product_title.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+            const prod = catalogProducts.find(p => {
+                const pTitleNorm = p.title.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+                return pTitleNorm === miProdNorm || pTitleNorm.includes(miProdNorm) || miProdNorm.includes(pTitleNorm);
+            });
+
+            if (prod) {
+                const miVarNorm = mi.variant_title.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+                const textNorm = text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+                // 1. Coincidencia exacta de variante
+                let matchedVar = (prod.variants || []).find((v: any) => {
+                    const vTitleNorm = v.title.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+                    return vTitleNorm === miVarNorm;
+                });
+
+                // 2. Si no es exacta, buscar la mejor variante por puntuación de palabras clave
+                if (!matchedVar) {
+                    const searchWords = `${miVarNorm} ${textNorm}`.split(/[\s,.-]+/).filter(w => w.length >= 2);
+                    let bestScore = -1;
+                    for (const v of prod.variants || []) {
+                        const vTitleNorm = v.title.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+                        let score = 0;
+                        if (vTitleNorm.includes(miVarNorm)) score += 40;
+                        if (miVarNorm.includes(vTitleNorm)) score += 30;
+                        for (const sw of searchWords) {
+                            if (vTitleNorm.includes(sw)) score += 25;
+                        }
+                        if (score > bestScore && score > 0) {
+                            bestScore = score;
+                            matchedVar = v;
+                        }
+                    }
+                }
+
+                if (!matchedVar && prod.variants && prod.variants.length > 0) {
+                    matchedVar = prod.variants[0];
+                }
+
+                if (matchedVar) {
+                    matchedFromAI = true;
+                    const priceFormatted = parseFloat(matchedVar.price).toLocaleString('es-CR');
+                    let block = `🏷️ *${prod.title}*\n`;
+                    const isSingle = matchedVar.title === 'Default Title' || matchedVar.title === 'Único';
+
+                    if (isSingle) {
+                        block += `• Precio: *₡${priceFormatted}*`;
+                    } else {
+                        block += `• Medida/Variante *${matchedVar.title}*: *₡${priceFormatted}*`;
+                        const otherVars = (prod.variants || []).filter((v: any) => v.id !== matchedVar.id);
+                        if (otherVars.length > 0) {
+                            block += `\n\n_Otras opciones disponibles:_\n`;
+                            block += otherVars.slice(0, 8).map((ov: any) => 
+                                `• ${ov.title} — ₡${parseFloat(ov.price).toLocaleString('es-CR')}`
+                            ).join('\n');
+                        }
+                    }
+                    blocks.push(block);
+                }
+            }
+        }
+    }
+
+    // 2. Si no se resolvió por matched_items, usar búsqueda difusa inteligente
+    if (!matchedFromAI || blocks.length === 0) {
+        let query = (analysis?.product_query || '').trim();
+        if (!query) {
+            query = text
+                .toLowerCase()
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .replace(/^(?:(?:hola|buenas|oye|porfa|por favor)\s*)?/gi, '')
+                .replace(/^(?:(?:me\s+)?(?:dices|puedes decir|sabes|sabras)\s+)?(?:a\s+como|cuanto\s+(?:cuesta|vale|sale)|precios?|que\s+precio\s+tiene(?:n)?|valor|costo|cotiza|cotizacion)\s*(?:de|del|las?|los?|para)?\s*/gi, '')
+                .replace(/[?¿!¡]/g, '')
+                .trim();
+        }
+
+        const results = await searchProductsSmart(query.length >= 2 ? query : text);
+        const viableResults = results.filter(r => r.score >= 50);
+
+        if (viableResults.length === 0) {
+            return `🔍 No encontré ningún producto que coincida con *"${query || text}"* en el catálogo de Shopify.\n\n¿Deseas consultarlo con otro nombre o variedad?`;
+        }
+
+        // Si el resultado principal tiene selectedVariant y score alto (>= 60)
+        const top = viableResults[0]!;
+        if (top.score >= 60 && top.selectedVariant) {
+            let block = `🏷️ *${top.title}*\n`;
+            const v = top.selectedVariant;
+            const priceFormatted = parseFloat(v.price).toLocaleString('es-CR');
+            if (v.title === 'Default Title' || v.title === 'Único') {
+                block += `• Precio: *₡${priceFormatted}*`;
+            } else {
+                block += `• Medida/Variante *${v.title}*: *₡${priceFormatted}*`;
+                const otherVars = top.variants.filter(ov => ov.variantId !== v.variantId);
+                if (otherVars.length > 0) {
+                    block += `\n\n_Otras opciones disponibles:_\n`;
+                    block += otherVars.slice(0, 8).map(ov => 
+                        `• ${ov.title} — ₡${parseFloat(ov.price).toLocaleString('es-CR')}`
+                    ).join('\n');
+                }
+            }
+            blocks.push(block);
+        } else {
+            // Consulta general para producto(s)
+            for (const group of viableResults.slice(0, 2)) {
+                let block = `🏷️ *${group.title}*\n`;
+                if (group.variants.length === 1 && (group.variants[0]!.title === 'Default Title' || group.variants[0]!.title === 'Único')) {
+                    block += `• Precio: *₡${parseFloat(group.variants[0]!.price).toLocaleString('es-CR')}*`;
+                } else {
+                    block += group.variants.slice(0, 8).map(v => 
+                        `• ${v.title === 'Default Title' ? 'Precio único' : v.title} — *₡${parseFloat(v.price).toLocaleString('es-CR')}*`
+                    ).join('\n');
+                }
+                blocks.push(block);
+            }
+        }
+    }
+
+    let finalResponse = blocks.join('\n\n---\n\n');
+
+    // Contexto de orden activa si existe
+    if (session.pendingConfirmation && session.customer) {
+        finalResponse += `\n\n📝 _Nota: Tu borrador de pedido (${session.items.length} ${session.items.length === 1 ? 'ítem' : 'ítems'}) para ${session.customer.name} sigue listo para confirmar. Responde "sí" para registrarlo en Shopify o "cancelar"._`;
+    } else if (session.items.length > 0 && !session.pendingCustomer && !session.pendingCustomProduct) {
+        finalResponse += `\n\n💡 _Nota: Tienes un pedido en curso con ${session.items.length} ${session.items.length === 1 ? 'producto' : 'productos'}${session.customer ? ` a nombre de ${session.customer.name}` : ''}. Si deseas agregarlo a la orden, solo indícamelo._`;
+    }
+
+    return finalResponse;
+}
+
 // Orquestador principal de mensajes conversacionales (100% IA Semántica)
 export async function processConversationMessage(chatId: number, text: string, advisorUsername: string): Promise<string> {
     const session = getSession(chatId);
@@ -484,6 +649,11 @@ export async function processConversationMessage(chatId: number, text: string, a
 
     // 0b. Respuesta directa a confirmación pendiente de creación de producto / aclaración fuera de catálogo
     if (session.pendingCustomProduct) {
+        if (isLikelyPriceInquiry(text)) {
+            const priceAns = await handlePriceInquiry(chatId, text);
+            return `${priceAns}\n\n🔍 _(Seguimos con el producto pendiente "${session.pendingCustomProduct.title}". ¿Deseas elegir una de las opciones anteriores o crearlo como nuevo?)_`;
+        }
+
         const pcp = session.pendingCustomProduct;
         const num = parseInt(lowerText, 10);
         const totalSuggestions = pcp.suggestions ? pcp.suggestions.length : 0;
@@ -652,8 +822,13 @@ export async function processConversationMessage(chatId: number, text: string, a
         }
     }
 
-    // 0b. Respuesta directa a aclaración pendiente de cliente (interacción numérica 1, 2, 3...)
+    // 0c. Respuesta directa a aclaración pendiente de cliente (interacción numérica 1, 2, 3...)
     if (session.pendingCustomer) {
+        if (isLikelyPriceInquiry(text)) {
+            const priceAns = await handlePriceInquiry(chatId, text);
+            return `${priceAns}\n\n👤 _(Seguimos con el pedido anterior. ¿A nombre de qué cliente lo registramos?)_`;
+        }
+
         const cand = session.pendingCustomer.candidates;
         let chosenCustomer: SessionCustomer | null = null;
         const newCustIdx = cand.length + 1;
@@ -766,8 +941,13 @@ export async function processConversationMessage(chatId: number, text: string, a
         }
     }
 
-    // 0c. Respuesta directa a aclaración pendiente de variante
+    // 0d. Respuesta directa a aclaración pendiente de variante
     if (session.pendingVariant && !session.pendingCustomer) {
+        if (isLikelyPriceInquiry(text)) {
+            const priceAns = await handlePriceInquiry(chatId, text);
+            return `${priceAns}\n\n⚙️ _(Seguimos con el pedido. ¿Cuál medida o variante de "${session.pendingVariant.productTitle}" deseas agregar?)_`;
+        }
+
         const cand = session.pendingVariant.variants;
         let chosenVariant: MatchedVariant | null = null;
         const num = parseInt(lowerText, 10);
@@ -877,6 +1057,12 @@ export async function processConversationMessage(chatId: number, text: string, a
         session.lastReportStudent = student;
         logInfo(`[Chat ${chatId}] [AI Intent] Consumo de alumno "${student}" (${period}): "${text}"`);
         return await generateStudentConsumptionStatement(student, period);
+    }
+
+    // 2.5 Manejo de consulta de precio de productos detectada por IA
+    if (analysis.intent === 'price_inquiry') {
+        logInfo(`[Chat ${chatId}] [AI Intent] Consulta de precio: "${text}"`);
+        return await handlePriceInquiry(chatId, text, analysis);
     }
 
     // 3. Manejo de cancelación desde IA
